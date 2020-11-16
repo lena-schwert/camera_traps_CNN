@@ -10,13 +10,11 @@ import os
 import platform
 
 if platform.system() == 'Linux':
-    os.chdir('~/research_project')
+    os.chdir('/home/lena/git/research_project/')
 elif platform.system() == 'Windows':
     os.chdir('L:\\Dokumente\\git\\research_project')
 else:
     print("Please specify the working directory manually!")
-
-os.getcwd()
 
 # data processing
 import pandas as pd
@@ -38,29 +36,24 @@ annotations = pd.json_normalize(labels['annotations'])  # works
 categories = pd.json_normalize(labels['categories'])  # works
 info = pd.json_normalize(labels['info'])  # works
 
-#images.to_pickle('./images.pkl')
-#annotations.to_pickle('./annotations.pkl')
-#categories.to_pickle('./categories.pkl')
-#info.to_pickle('./info.pkl')
 
-# TODO convert datatype object to strings
-as_type
+# %% Inspect labels
 
-#%% Inspect labels
-
-
-
+def object_to_string_dtype(dataframe):
+    for i in dataframe.columns:
+        if dataframe[i].dtype == 'object':
+            dataframe[i] = dataframe[i].astype('string')
+        else:
+            pass
+    return dataframe
 
 
+images = object_to_string_dtype(images)
+annotations = object_to_string_dtype(annotations)
+categories = object_to_string_dtype(categories)
+info = object_to_string_dtype(info)
 
-
-
-
-
-
-
-
-
+# %%
 
 
 # %% Old hacky code
