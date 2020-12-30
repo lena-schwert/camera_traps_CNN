@@ -5,11 +5,10 @@
 """
 # %% Imports
 
-# set working directory OS-specific
+# for interaction with the system
 import os
 import platform
-
-from torchvision.transforms import Compose
+import subprocess
 
 if platform.system() == 'Linux':
     os.chdir('/home/lena/git/research_project/')
@@ -65,7 +64,6 @@ info = pd.json_normalize(labels['info'])  # works
 
 images = object_to_string_dtype(images)
 annotations = object_to_string_dtype(annotations)
-categories = object_to_string_dtype(categories)
 info = object_to_string_dtype(info)
 
 # add column to images that includes width_x_height
@@ -76,9 +74,10 @@ images = images.assign(width_x_height = lambda x: (x['width'].map(str)+"x"+x['he
 # %% Using Microsoft CameraTraps tools
 
 ### using data_management/databases
-# do a sanity check of the JSON label file
+
+# easy access to class count
 from MicrosoftCameraTraps.data_management.databases.sanity_check_json_db import sanity_check_json_db
-class_distribution, json_loaded, problems = sanity_check_json_db('island_conservation.json')
+sanity_check_json_db("/home/lena/git/research_project/island_conservation.json")
 
 from MicrosoftCameraTraps.data_management.cct_json_to_filename_json import convertJsonToStringList
 rel_file_path_list, out_file_name = convertJsonToStringList(
@@ -112,15 +111,18 @@ class IslandConservationDataset(Dataset):
     def __init__(self, img_base_dir, label_file_path, all_img_file_paths, transformations = None):
         """
 
-        :param all_img_file_paths:
+        :param all_img_file_paths: comes from the JSON with labels
         :param img_base_dir (string):
         :param label_file_path (string):
-        :param transformations:
+        :param transformations (torchvision.transforms.Compose):
         """
         self.img_base_dir = img_base_dir
         self.all_img_file_paths = all_img_file_paths
         self.label_file_path = label_file_path
         self.transforms = transformations
+
+        # TODO pass list of class labels to use in __getitem__ to self
+        self.class_labels = None
 
         # specifically use the PIL image backend (accimage has too few transforms implemented)
         torchvision.set_image_backend('PIL')
@@ -132,12 +134,14 @@ class IslandConservationDataset(Dataset):
         from class doc: "is expected to return the size of the dataset by many sampler implementations"
         """
         # TODO clarify whether to use image or label count for return
+        # find length by counting files in Linux
+        if platform.system() != 'Linux':
+            raise NotImplementedError("Implementation of __len__ only exists for Linux.")
+        img_file_count_linux = int(subprocess.getoutput(f'find {self.img_base_dir} -type f | wc -l'))
 
+        return img_file_count_linux
 
-        raise NotImplementedError
-        pass
-
-    def __getitem__(self, item):
+    def __getitem__(self, item) -> (torch.Tensor, int):
         """
         Provides an image, given an item/index within the dataset.
         If applicable, does the required transofrmations
@@ -145,7 +149,7 @@ class IslandConservationDataset(Dataset):
         from class doc: "supports fetching a data sample for a given key"
 
         :param item: specifies the index in the entire dataset?
-        :return:
+        :return: tuple of the transformed image and its label as integer
         """
         ### copied from microsoft/CameraTraps/train_classifier.py
         # access the relative file path for the requested 'item'
@@ -156,60 +160,99 @@ class IslandConservationDataset(Dataset):
         else:
             img_abs_path = img_rel_path
         # load the image itself using Torch's default_loader
-        img = default_loader(img_abs_path)
-        # TODO check the properties that the loaded image has! channels, colors, size
+        img = default_loader(img_abs_path)  # will be loaded as PIL.Image
+
+        if img.mode != 'RGB':
+            raise TypeError(f"The loaded image is not in RGB mode. Doublecheck image {img_rel_path}.")
+
+        # TODO access the label given the image
         true_label = None
 
-        return img, true_label
+        # TODO apply transformations here
+        if self.transforms is not None:
+            img_transformed = self.transforms(img)
+        else:
+            img_transformed = img
 
+        # TODO depending on what train() requires, maybe change returned dtype, e.g. to dict
+        return img_transformed, true_label
+
+
+# %% Specify image transformations
+
+# TODO choose image transformation types
+transformations = transforms.Compose(
+    [transforms.RandomCrop((1024, 1280)),   # (height, width) resize all images to smallest common image size
+     transforms.PILToTensor()]  # creates FloatTensor in range [0,1]
+)
+# RandomHorizontalFlip
+# Normalize , but needs to be applied on tensor not PILImage stype
 
 # %% Creating a dataloader
 all_data = IslandConservationDataset(img_base_dir = image_directory,
                                      label_file_path = path_to_label_json,
                                      all_img_file_paths = images['file_name'],
-                                     transformations = None)
+                                     transformations = transformations)
 
 all_data.__len__()
 all_data.__getitem__(2)
 
-### Look at image properties reported by PIL
-test_image, _ = all_data.__getitem__(256)
-test_image.show()
-test_image.size  # returns tuple of image size
-test_image.mode  # shows that it is an RGB image
-r, g, b = test_image.getpixel((1, 1))  # access RGB values of an image
-test_image.getbbox()
-test_image.getbands()
-test_image.getcolors()
-test_image.transpose(method = Image.FLIP_LEFT_RIGHT).show()
-
-# TODO do a train, validate, test split
-
 data_loader = DataLoader(all_data, batch_size = 256, shuffle = True)
+
+### Look at the returned image tensor
+
 
 
 # %% Answering small questions about the dataset?
 
 ### Are there more/less labels than images?
 # How many labels are there in total?
-from MicrosoftCameraTraps.data_management.databases.sanity_check_json_db import sanity_check_json_db
-class_distribution, json_loaded, problems = sanity_check_json_db('island_conservation.json')
-for category in sanity_check_result[0]:  # loop through list
-    print(type(category))
-    print(category['_count'])
-    # sum up all the counts
+# dataframe annotations has 142,341 rows
+annotations.columns
+unique_annotation_IDs = set(annotations['id'])
+len(unique_annotation_IDs)  # 142341
+unique_annotation_image_ids = set(annotations['image_id'])
+len(unique_annotation_image_ids)  # 127,410
 
 # How many images are there in total?
-# access __len__ from the PyTorch Dataset class
+#... acccording to the image path file
+# dataframe images has 127,410 rows
+# How many unique IDs?
+unique_image_IDs = set(images['id'])
+len(unique_image_IDs)  # 127,410
+unique_image_file_names = set(images['file_name'])
+len(unique_image_file_names)  # 127,410
+print(f"There are {unique_image_IDs} unique image IDs.")
+
+#... according to Linux?
+image_directory = "/home/lena/git/research_project/image_data/"
+image_file_count_linux = int(subprocess.getoutput(f'find {image_directory} -type f | wc -l'))
+print(f"Linux finds {image_file_count_linux} image files.")  # 122,602
+
+# Do all image IDs appear in the annotations? (= set difference)
+unique_annotation_image_ids.difference(unique_image_IDs)  # empty set
+unique_image_IDs.difference(unique_annotation_image_ids)  # empty set
+
+# Where does the count difference come from?
+
+### How do images look like that have multiple labels? Do they always hve bboxes?
+
+# aggregate over annotations dataframe
+
 
 ### What do images with the 'unknown' label look like?
 
 
 ### Are there any images that have the 'human' label? (they said they removed those)
+human_id = int(categories['id'][categories['name'] == 'human'])
+
+
+
 
 
 ### What are the image sizes (width/height) like?
 images['width_x_height'].unique()
+images['width_x_height'].value_counts()
 # What are the most/least common image sizes?
 # plot as histogram
 plot_dist_image_sizes = sns.displot(images['width_x_height'])
@@ -217,19 +260,6 @@ plot_dist_image_sizes.set_xticklabels(rotation = 45, horizontalalignment='right'
 plt.tight_layout()
 plt.show()
 # There are 8 different image formats
-
-
-# %% Specify image transformations
-
-# TODO choose image transformation types
-
-transformations = transforms.Compose(
-    [transforms.RandomCrop((1280, 1024)),   # resize all images to smallest common image size
-     transforms.PILToTensor()]  # creates FloatTensor in range [0,1]
-)
-
-# RandomHorizontalFlip
-# Normalize , but needs to be applied on tensor not PILImage stype
 
 
 # %% Look at images with matplotlib/tensorboard
