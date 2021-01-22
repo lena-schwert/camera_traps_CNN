@@ -36,20 +36,15 @@ import matplotlib.pyplot as plt
 from skimage import io
 import seaborn as sns
 
-# load custom utility functions
+# utility functions
 from IslandConservationDataset_utilities import show_image_given_its_ID, show_labels_given_image_ID
 from IslandConservationDataset_utilities import return_image_batch_given_category_ID
+import time
+from tqdm import tqdm
 
 # Global Settings
 pd.set_option('display.width', 500)
 pd.set_option('display.max_columns', 15)
-
-
-# %% Load the dataframe with all metadata/labels for each valid image
-
-images_metadata = pd.read_pickle(os.path.join(os.getcwd(), 'Code/images_metadata_preprocessed.pkl'))
-
-image_directory = "/home/lena/git/research_project/image_data/"
 
 
 # %% Create a custom PyTorch dataset
@@ -83,7 +78,7 @@ class IslandConservationDataset(Dataset):
         first_iter = True
         for value in self.class_ID_selection:
             indices_class = images_metadata_dataframe[images_metadata_dataframe['category_id'] == value].index
-
+            # TODO sample a given number from these indices
             if first_iter:
                 class_selection_indices = indices_class
                 first_iter = False
@@ -112,14 +107,9 @@ class IslandConservationDataset(Dataset):
 
         from class doc: "is expected to return the size of the dataset by many sampler implementations"
         """
-        # # find length by counting files in Linux
-        # if platform.system() != 'Linux':
-        #     raise NotImplementedError("Implementation of __len__ only exists for Linux.")
-        # img_file_count_linux = int(
-        #     subprocess.getoutput(f'find {self.img_base_dir} -type f | wc -l'))
-        img_file_count_linux = images_metadata.shape[0]
+        img_file_count = self.images_metadata_dataframe_subset.shape[0]
 
-        return img_file_count_linux
+        return img_file_count
 
     def __getitem__(self, item):
         """
@@ -158,59 +148,96 @@ class IslandConservationDataset(Dataset):
         return img_transformed, true_label
 
 
-# %% Specify image transformations
+if __name__ == "__main__":
 
-transformations_simple = transforms.Compose([
-    transforms.RandomCrop((1024, 1280)),  # (height, width) resize all images to smallest common image size
-    transforms.ToTensor(),  # creates FloatTensor scaled to the range [0,1]
-])
+# %% Load the dataframe with all metadata/labels for each valid image
 
-transformations_simple_ResNet18 = transforms.Compose([
-    transforms.RandomCrop((1024, 1280)),  # (height, width) resize all images to smallest common image size
-    transforms.ToTensor(),  # creates FloatTensor scaled to the range [0,1]
-    transforms.Normalize(mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225])
-])
+    images_metadata = pd.read_pickle(os.path.join(os.getcwd(), 'Code/images_metadata_preprocessed.pkl'))
 
-# %% Fulfulling requirements for PyTorch's ResNet implementation
+    image_directory = "/home/lena/git/research_project/image_data/"
+    ## %% Specify image transformations
 
-top_5_categories = {
-    'empty': 0,
-    'rat': 7,
-    'rabbit': 22,
-    'petrel': 21,
-    'iguana': 3
-}
+    transformations_simple = transforms.Compose([
+        transforms.RandomCrop((1024, 1280)),  # (height, width) resize all images to smallest common image size
+        transforms.ToTensor(),  # creates FloatTensor scaled to the range [0,1]
+    ])
 
-dataset = IslandConservationDataset(img_base_dir = image_directory,
-                                    images_metadata_dataframe = images_metadata,
-                                    dict_of_categories = top_5_categories,
-                                    transformations = transformations_simple_ResNet18)
+    transformations_simple_ResNet18 = transforms.Compose([
+        transforms.RandomCrop((1024, 1280)),  # (height, width) resize all images to smallest common image size
+        transforms.ToTensor(),  # creates FloatTensor scaled to the range [0,1]
+        transforms.Normalize(mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225])
+    ])
 
-test_img = dataset.__getitem__(3)[0]
-test_img.shape  # torch.Size([3, 1024, 1280])
+    # %% Fulfulling requirements for PyTorch's ResNet implementation
 
-# create a batch as is required by ResNet???
-type(test_img)
-test_img.unsqueeze(0).shape
+    top_5_categories = {
+        'empty': 0,
+        'rat': 7,
+        'rabbit': 22,
+        'petrel': 21,
+        'iguana': 3
+    }
+
+    dataset = IslandConservationDataset(img_base_dir = image_directory,
+                                        images_metadata_dataframe = images_metadata,
+                                        dict_of_categories = top_5_categories,
+                                        transformations = transformations_simple_ResNet18)
+
+    # test_img = dataset.__getitem__(3)[0]
+    # test_img.shape  # torch.Size([3, 1024, 1280])
+    #
+    # # create a batch as is required by ResNet???
+    # type(test_img)
+    # test_img.unsqueeze(0).shape
 
 
-# %% Creating a dataloader
+    # %% Creating a dataloader
 
-# access data in batches using the DataLoader
-data_loader = DataLoader(dataset, batch_size = 32, shuffle = False)
 
-# check that the data loader works as expected
 
-# very dangerous code, uses too much memory
-# for X_batch in data_loader:
-#     print(X_batch)
+    # check that the data loader works as expected
 
-next(iter(data_loader))
+    # very dangerous code, uses too much memory
+    # for X_batch in data_loader:
+    #     print(X_batch)
 
-### Look at the returned image tensor
-# source: https://stackoverflow.com/questions/53623472/how-do-i-display-a-single-image-in-pytorch
-# TODO look at the returned image tensor
+    # access data in batches using the DataLoader
+    batch_size = 32
+    data_loader = DataLoader(dataset, batch_size = batch_size,
+                             shuffle = False, num_workers = 0)
 
+    # start_time_batch = time.perf_counter()
+    # next(iter(data_loader))
+    # end_time_batch = time.perf_counter()
+    # print(f"Loading batch of size {batch_size} took {round(end_time_batch-start_time_batch, 2)} seconds.")
+
+    # try to iterate through the dataloader once
+    start_time_data_loader_loop = time.perf_counter()
+    iteration = 0
+    for batch_index, (image_batch, label_batch) in tqdm(enumerate(data_loader)):
+        #print(image_batch)
+        #print(label_batch)
+        iteration += 1
+        if iteration % 100 == 0:
+            print(f'Loop is already running for {round(time.perf_counter()-start_time_data_loader_loop, 2)/60} minutes.')
+            print(f'We are at batch {batch_index} of {data_loader.__len__()}')
+    end_time_data_loader_loop = time.perf_counter()
+    print(f"Iterating through the dataloader with batch size {batch_size} took {round(end_time_data_loader_loop-start_time_data_loader_loop, 2)} seconds.")
+
+
+    ### Look at the returned image tensor
+    # source: https://stackoverflow.com/questions/53623472/how-do-i-display-a-single-image-in-pytorch
+    # TODO look at the returned image tensor
+
+    ### Look at an image batch
+
+    from IslandConservationDataset_utilities import show_images
+
+    image_batch, label_batch = next(iter(data_loader))
+
+    image_batch_torchvision = torchvision.utils.make_grid(image_batch)
+
+    show_images(image_batch_torchvision, title = label_batch)
 
 
 
@@ -223,7 +250,6 @@ next(iter(data_loader))
 
 
 # %% Look at images with matplotlib/tensorboard
-image_directory = "/home/lena/git/research_project/image_data/"
 
 # writer = SummaryWriter('runs/visualize_images')
 
@@ -234,8 +260,7 @@ image_directory = "/home/lena/git/research_project/image_data/"
 
 # makes sure that the code below is not executed, when functions are imported
 # gets only executed if .py is executed in terminal
-if __name__ == "__main__":
-    pass
+
     ### Using Microsoft CameraTraps tools
     #
     # ### using data_management/databases

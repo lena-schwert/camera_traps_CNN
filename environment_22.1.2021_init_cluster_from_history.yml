@@ -1,0 +1,27 @@
+name: CNN_PyTorch_CameraTraps
+channels:
+  - defaults
+dependencies:
+  - tqdm[version='<4.21.0']
+  - requests
+  - unidecode
+  - scikit-learn[version='>=0.19.1']
+  - jsonpickle
+  - matplotlib
+  - jsonschema
+  - scikit-image[version='>=0.13.1']
+  - pandas
+  - humanfriendly
+  - pip
+  - python[version='>=3.6']
+  - ipykernel
+  - tensorboard
+  - openpyxl
+  - numpy
+  - nb_conda_kernels
+  - pillow[version='>=5.3.0']
+  - joblib
+  - seaborn
+  - natsort
+  - pytables
+prefix: /home/lena/Programs/anaconda3/envs/CNN_PyTorch_CameraTraps
