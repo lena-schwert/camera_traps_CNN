@@ -157,24 +157,15 @@ transformations_simple = transforms.Compose([transforms.RandomCrop((1024, 1280))
                                             # creates FloatTensor in range [0,1]
                                             )
 
-image_directory = "/home/lena/git/research_project/image_data/"
-path_to_label_json = "/home/lena/git/research_project/island_conservation.json"
+
+
 
 
 # %% Utility functions
 
-def load_image_index_from_image_ID(image_ID: str):
-    file_path = images['file_name'][images['id'] == image_ID]
+image_directory = "/home/lena/git/research_project/image_data/"
 
-    data = IslandConservationDataset(img_base_dir = image_directory,
-                                     label_file_path = path_to_label_json,
-                                     all_img_file_paths = images['file_name'],
-                                     transformations = transformations_simple,
-                                     label_dataframe = annotations)
-    image, _ = data.__getitem__()
-
-
-def show_image_given_its_ID(image_identifier: str):
+def show_image_given_its_ID(image_identifier: str, image_dataframe):
     """
     Given a image ID (words separated by _), accesses the file path (separated by /)
     to plot and open the respective image using PIL.
@@ -185,7 +176,7 @@ def show_image_given_its_ID(image_identifier: str):
     :param image_identifier: image ID as string (words separated by _)
     :return: opens the image in an external program
     """
-    image_rel_path = images['file_name'][images['id'] == image_identifier].iloc[0]
+    image_rel_path = image_dataframe['file_name'][image_dataframe['image_id'] == image_identifier].iloc[0]
     image = Image.open(os.path.join(image_directory, image_rel_path))
     return image.show()
 
@@ -210,7 +201,24 @@ def show_labels_given_image_ID(image_identifier: str):
                 'numerical_categories': labels.unique()
                 }
 
-def return_tensorboard_image_batch_given_category_ID(category_ID):
+def return_tensorboard_image_batch_given_category_ID(category_ID, how_many_images):
+    """
+    Requires access to global dataframe image_metadata
+
+    :param category_ID:
+    :param how_many_images:
+    :return:
+    """
+    # filter the dataframe w.r.t. the category ID
+    indices_class = images_metadata[images_metadata['category_id'] == category_ID].index
+
+    # sample given number from the category
+    # use
+    transformation = transforms.RandomCrop((1024, 1280))
+    images = transformation()
+    # tensor must be 4D mini-batch Tensor of shape (B x C x H x W) or a list of images all of the same size.
+    torchvision.utils.make_grid(tensor = None,
+                                nrow = 10)
     pass
 
 # %% Why are there more/less labels than images?
@@ -252,8 +260,7 @@ unique_image_IDs.difference(unique_annotation_image_ids)  # empty set
 # %% Is the difference between number of annotations + images within JSON file explainable? - Yes!
 
 # Find images that have multiple annotations (identify using the image ID)
-images_multiple_annotations = annotations
-    [annotations.duplicated(subset = 'image_id', keep = False)]  # show all duplicates
+images_multiple_annotations = annotations[annotations.duplicated(subset = 'image_id', keep = False)]  # show all duplicates
 images_multiple_annotations.shape  # 20,858 rows
 
 # safety check: any multiple annotations w.r.t. empty annotation? (ID = 0)
@@ -272,11 +279,11 @@ duplicate_annotation_count[duplicate_annotation_count > 2]  # 1922
 duplicate_annotation_count[duplicate_annotation_count > 10]  # 436
 # What does an exemplary image look like?
 # appears 12 times: micronesia_cam06_cam06june2019_pig_micronesia_cam06_cam06june2019_pig_20190629205325_1390
-show_image_given_its_ID \
-    ('micronesia_cam06_cam06june2019_pig_micronesia_cam06_cam06june2019_pig_20190629205325_1390')
+show_image_given_its_ID(
+    'micronesia_cam06_cam06june2019_pig_micronesia_cam06_cam06june2019_pig_20190629205325_1390', )
 # there are 12 rats on the image....
-show_image_given_its_ID \
-    ('micronesia_cam06_cam06june2019_pig_micronesia_cam06_cam06june2019_pig_20190629192048_11310')
+show_image_given_its_ID(
+    'micronesia_cam06_cam06june2019_pig_micronesia_cam06_cam06june2019_pig_20190629192048_11310', )
 
 duplicate_annotation_count.sum()  # 20,858
 # subtract the number of unique images from that number
@@ -287,7 +294,7 @@ print \
     (f"This explains the difference between {len(set(annotations['id']))} annotations and {len(set(images['id']))} images according to the original JSON file,")
 print \
     (f"because there are {images_multiple_annotations.shape[0 ] -5927} annotations that are duplicates,")
-print(f"and 142341-14931 = {14234 1 -14931}.")
+print(f"and 142341-14931 = {142341 -14931}.")
 
 # %% Are there ever images with multiple annotations that have more than one class label?
 
@@ -301,8 +308,8 @@ print(f"and 142341-14931 = {14234 1 -14931}.")
 # index: "column from df that we want to appear as a unique value in each row"
 # values: "the column we want to apply some aggregate operation on"
 # aggfunc: "the function that is/are applied"
-images_multiple_annotations.pivot_table(index = 'image_id', values = 'category_id',
-                                        aggfunc = append())
+# images_multiple_annotations.pivot_table(index = 'image_id', values = 'category_id',
+#                                         aggfunc = append())
 # id
 
 # ideas from skype call
@@ -325,8 +332,7 @@ bla = images_multiple_annotations.groupby('image_id')['category_id'].count()
 images_multiple_annotations[images_multiple_annotations.image_id.unique(), 'image_id']
 ['image_id' == images_multiple_annotations.image_id.unique()]
 
-temp = images_multiple_annotations['image_id'] + "_" + images_multiple_annotations
-    ['category_id'].map(str)
+temp = images_multiple_annotations['image_id'] + "_" + images_multiple_annotations['category_id'].map(str)
 images_multiple_annotations.loc[:, 'image_id_and_category_id'] = temp
 
 images_multiple_annotations['image_id+category_id'].unique()
@@ -338,8 +344,8 @@ images_multiple_annotations['image_id_and_category_id']
 
 # show the image with the maximal animal count
 bla[bla == bla.max()].index
-show_image_given_its_ID \
-    ("micronesia_cam06_cam06june2019_pig_micronesia_cam06_cam06june2019_pig_20190629195303_1926")
+show_image_given_its_ID(
+    "micronesia_cam06_cam06june2019_pig_micronesia_cam06_cam06june2019_pig_20190629195303_1926", )
 
 
 
@@ -353,7 +359,7 @@ images_unknown.info()
 images_unknown['image_id'].unique()  # there are 941 unique images with that label
 
 # look at an example
-show_image_given_its_ID(images_unknown['image_id'].iloc[100])
+show_image_given_its_ID(images_unknown['image_id'].iloc[100], )
 
 
 
@@ -384,11 +390,8 @@ plt.show()
 
 # %% Create a merged dataframe with all key information
 
-# TODO continue here!
-
 ### drop all 20,858 (corresponding to 5,927 unique images) rows of images with more than 1 label
-images_multiple_annotations = annotations
-    [annotations.duplicated(subset = 'image_id', keep = False)]  # show all duplicates
+images_multiple_annotations = annotations[annotations.duplicated(subset = 'image_id', keep = False)]  # show all duplicates
 images_multiple_annotations.info()
 # use pandas drop_duplicates to exclude all those rows
 
@@ -404,8 +407,7 @@ annotations_preprocessed = annotations_preprocessed.drop('bbox', axis = 1)
 ### drop all rows with the label "human"
 human_category_id = int(categories['id'][categories['name'] == 'human'])
 # How many unique images with the human label are there? - 3767
-images_humans = annotations_preprocessed.loc
-    [annotations_preprocessed['category_id'] == human_category_id]
+images_humans = annotations_preprocessed.loc[annotations_preprocessed['category_id'] == human_category_id]
 
 annotations_preprocessed = annotations_preprocessed.drop(index = images_humans.index)
 # 117,716 rows are left (121,483 - 3,767 = 117,716)
@@ -439,5 +441,5 @@ non_existing_image_IDs  # is empty!
 
 # save the dataframe on disk for import by other files
 
-images_metadata_preprocessed.to_pickle(os.path.join(os.getcwd(), 'images_metadata_preprocessed.pkl'))
+images_metadata_preprocessed.to_pickle(os.path.join(os.getcwd(), 'Code/images_metadata_preprocessed.pkl'))
 
