@@ -26,6 +26,8 @@ elif socket.gethostname() == 'ml3-gpu2':
 else:
     print("Please specify the working directory manually!")
 
+print(f'Working directory changed to: {os.getcwd()}')
+
 image_directory = os.path.join(os.getcwd(), 'image_data')
 
 # %% LOAD PRETRAINED RESNET-18
