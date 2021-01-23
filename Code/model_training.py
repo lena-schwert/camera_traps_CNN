@@ -10,30 +10,31 @@ from torch.utils.tensorboard import SummaryWriter
 # Data stuff
 import os
 import platform
+import socket
 import time
 import tqdm
 import copy
 import pandas as pd
 from custom_dataset_transformations import IslandConservationDataset
 
-if platform.system() == 'Linux':
+if socket.gethostname() == 'Schlepptop':
     os.chdir('/home/lena/git/research_project/')
-elif platform.system() == 'Windows':
-    os.chdir('L:\\Dokumente\\git\\research_project')
+elif socket.gethostname() == 'ml3-gpu2':
+    os.chdir('/home/lena.schwertmann/git/camera_traps_CNN')
 else:
     print("Please specify the working directory manually!")
+
+image_directory = os.path.join(os.getcwd(), 'image_data')
 
 # %% LOAD PRETRAINED RESNET-18
 
 # torchvision version: 0.8.1
 model_resnet18_pytorch = torch.hub.load(repo_or_dir = 'pytorch/vision:v0.8.1', model = 'resnet18',
-                                pretrained = True)
+                                        pretrained = True)
 
 # %% LOAD THE METADATA/LABELS
 
 images_metadata = pd.read_pickle(os.path.join(os.getcwd(), 'Code/images_metadata_preprocessed.pkl'))
-
-image_directory = "/home/lena/git/research_project/image_data/"
 
 
 # %% CUSTOM NEURAL NETWORK CLASS
@@ -101,9 +102,12 @@ def validate(data, model):
 
 # noinspection DuplicatedCode
 transformations_simple_ResNet18 = transforms.Compose([transforms.RandomCrop((1024, 1280)),
-    # (height, width) resize all images to smallest common image size
-    transforms.ToTensor(),  # creates FloatTensor scaled to the range [0,1]
-    transforms.Normalize(mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225])])
+                                                      # (height, width) resize all images to smallest common image size
+                                                      transforms.ToTensor(),
+                                                      # creates FloatTensor scaled to the range [0,1]
+                                                      transforms.Normalize(
+                                                          mean = [0.485, 0.456, 0.406],
+                                                          std = [0.229, 0.224, 0.225])])
 
 # %% MAIN CODE SET UP THE DATA
 
@@ -143,7 +147,6 @@ train_loader = DataLoader(train_data, batch_size = BATCH_SIZE, shuffle = True, n
 validate_loader = DataLoader(validate_data, batch_size = BATCH_SIZE, shuffle = True,
                              num_workers = 0)
 
-
 # %% EXPLORE + ADAPT THE MODEL
 
 # look at the names of all model parts
@@ -155,13 +158,13 @@ model_resnet18_pytorch.fc  # Linear(in_features=512, out_features=1000, bias=Tru
 # How can I change the dimensionality of the final layer?
 
 
-
 ### adapt model architecture to IslandConservationDataset
 
 # clone the model with deepcopy!
 model_resnet18_adapted = copy.deepcopy(model_resnet18_pytorch)
 # adapt the output dimensions according to the class selection!
-model_resnet18_adapted.fc = nn.Linear(in_features = 512, out_features = len(top_5_categories), bias = True)
+model_resnet18_adapted.fc = nn.Linear(in_features = 512, out_features = len(top_5_categories),
+                                      bias = True)
 
 # check whether dimensionality of input is suitable
 BATCH_SIZE = 16
@@ -201,7 +204,7 @@ for i in range(N_EPOCHS):
           criterion = cross_entropy_loss, optimizer = optimizer_adam)
     end_time_epoch = time.perf_counter()
     print(f'Epoch {i} of {N_EPOCHS} ran for {round(end_time_epoch - start_time_epoch, 2)} seconds.')
-    runtime_epochs.append(3 )# TODO collect metadata about the training)
+    runtime_epochs.append(3)  # TODO collect metadata about the training)
 
 # TODO save the model state dict
 

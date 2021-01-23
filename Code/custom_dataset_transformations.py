@@ -9,13 +9,15 @@
 import os
 import platform
 import subprocess
+import socket
 
-if platform.system() == 'Linux':
+if socket.gethostname() == 'Schlepptop':
     os.chdir('/home/lena/git/research_project/')
-elif platform.system() == 'Windows':
-    os.chdir('L:\\Dokumente\\git\\research_project')
+elif socket.gethostname() == 'ml3-gpu2':
+    os.chdir('/home/lena.schwertmann/git/camera_traps_CNN')
 else:
     print("Please specify the working directory manually!")
+
 
 # neural network stuff
 import torch
@@ -41,10 +43,6 @@ from IslandConservationDataset_utilities import show_image_given_its_ID, show_la
 from IslandConservationDataset_utilities import return_image_batch_given_category_ID
 import time
 from tqdm import tqdm
-
-# Global Settings
-pd.set_option('display.width', 500)
-pd.set_option('display.max_columns', 15)
 
 
 # %% Create a custom PyTorch dataset
