@@ -39,7 +39,7 @@ dataset = IslandConservationDataset(img_base_dir = image_directory,
                                     dict_of_categories = top_5_categories,
                                     transformations = transformations_simple_ResNet18)
 
-batch_size = 32
+batch_size = 256
 
 data_loader = DataLoader(dataset, batch_size = batch_size, shuffle = False, num_workers = 0)
 

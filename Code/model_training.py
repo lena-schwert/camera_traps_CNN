@@ -6,6 +6,8 @@ import torch.nn as nn
 from torchvision import transforms, utils
 from torch.utils.data import random_split, DataLoader
 from torch.utils.tensorboard import SummaryWriter
+import ray
+from ray import tune
 
 # Data stuff
 import os
@@ -35,16 +37,6 @@ model_resnet18_pytorch = torch.hub.load(repo_or_dir = 'pytorch/vision:v0.8.1', m
 # %% LOAD THE METADATA/LABELS
 
 images_metadata = pd.read_pickle(os.path.join(os.getcwd(), 'Code/images_metadata_preprocessed.pkl'))
-
-
-# %% CUSTOM NEURAL NETWORK CLASS
-
-class SpeciesClassifier(nn.Module):
-    def __init__(self):
-        super(SpeciesClassifier, self).__init__()
-
-        def forward(self, image):
-            pass
 
 
 # %% TRAIN FUNCTION
@@ -85,15 +77,17 @@ def train(train_loader, model, optimizer, device, criterion):
 
 # %% VALIDATE FUNCTION
 
-def validate(data, model):
+def validate(data, model, criterion):
     model.eval()
-    # data: torch.utils.data.dataset.Subset
-    X_validate = data.dataset.tensors[0][data.indices]
-    y_validate = data.dataset.tensors[1][data.indices]
+    with torch.no_grad():
 
-    # calculate loss all at once (no batches needed)
-    # TODO check input with function declaration
-    validate_loss = loss_function()
+        # data: torch.utils.data.dataset.Subset
+        X_validate = data.dataset.tensors[0][data.indices]
+        y_validate = data.dataset.tensors[1][data.indices]
+
+        # calculate loss all at once (no batches needed)
+        # TODO check input with function declaration
+        validate_loss = None
 
     return validate_loss
 
@@ -125,63 +119,66 @@ dataset_top_5_categories = IslandConservationDataset(img_base_dir = image_direct
                                                      images_metadata_dataframe = images_metadata,
                                                      dict_of_categories = top_5_categories,
                                                      transformations = transformations_simple_ResNet18)
+print(f'Categories used are: {dataset_top_5_categories.class_selection_dict}')
 
 ### do a train, validate, test split
 
-# TODO do a train, validate, test split
-
-train_size, validate_size, test_size = (0.6, 0.2, 0.2)
-if train_size + validate_size + test_size != 1:
-    raise ValueError("Train, validate, test proportions do not sum to 1!")
+train_size, validate_size, test_size = (0.6, 0.3, 0.1)
+# test_size = 1 - (train_size + validate_size)
+# if train_size + validate_size + test_size != 1:
+#     raise ValueError("Train, validate, test proportions do not sum to 1!")
 # use PyTorch's random_split
+train_length = int(validate_size * dataset_top_5_categories.__len__())
+val_length = int(validate_size * (dataset_top_5_categories.__len__() - train_length))
+test_length = dataset_top_5_categories.__len__() - (train_length + val_length)
 
-# create a TensorDataset out of the DataFrame
-
-train_data, temp = random_split(all_data, [train_length, val_length + test_length])
+# the data subsets are of type torch.utils.data.dataset.Subset
+train_data, temp = random_split(dataset_top_5_categories, [train_length, val_length + test_length])
 validate_data, test_data = random_split(temp, [val_length, test_length])
 
-### create the data_loader for training
-
-
-train_loader = DataLoader(train_data, batch_size = BATCH_SIZE, shuffle = True, num_workers = 0)
-validate_loader = DataLoader(validate_data, batch_size = BATCH_SIZE, shuffle = True,
-                             num_workers = 0)
-
 # %% EXPLORE + ADAPT THE MODEL
-
-# look at the names of all model parts
-for parameter in model_resnet18_pytorch.named_parameters():
-    print(parameter[0])
-
-# look at the dimensionality of the output layer 'fc'
-model_resnet18_pytorch.fc  # Linear(in_features=512, out_features=1000, bias=True)
-# How can I change the dimensionality of the final layer?
-
 
 ### adapt model architecture to IslandConservationDataset
 
 # clone the model with deepcopy!
 model_resnet18_adapted = copy.deepcopy(model_resnet18_pytorch)
 # adapt the output dimensions according to the class selection!
+# fully connected layer out-of-the-box: Linear(in_features=512, out_features=1000, bias=True)
 model_resnet18_adapted.fc = nn.Linear(in_features = 512, out_features = len(top_5_categories),
                                       bias = True)
 
 # check whether dimensionality of input is suitable
-BATCH_SIZE = 16
-debug_loader_all = DataLoader(dataset_top_5_categories, batch_size = BATCH_SIZE, shuffle = True,
-                              num_workers = 0)
 
-image_batch_debug, labels_batch_debug = next(iter(debug_loader_all))
-output = model_resnet18_adapted(image_batch_debug)
-output.size()  # torch.Size([16, 5])
+# debug_loader_all = DataLoader(dataset_top_5_categories, batch_size = BATCH_SIZE, shuffle = True,
+#                               num_workers = 0)
+#
+# image_batch_debug, labels_batch_debug = next(iter(debug_loader_all))
+# output = model_resnet18_adapted(image_batch_debug)
+# output.size()  # torch.Size([16, 5])
 # --> prediction over 5 classes for each sample
 
+# %% INCLUDE RAY FOR MINIMAL HYPERPARAMETER TUNING
 
-# %% MAIN CODE TRAINING LOOP + TESTING
+search_space = {'learning_rate': tune.grid_search([0.1, 0.01, 0.001, 0.0001]), # 0.1-0.001 (powers of 10
+                'batch_size': tune.grid_search([64, 128, 256])}
+
+
+                # %% MAIN CODE TRAINING LOOP + TESTING
+
+### create the data_loader for training
+BATCH_SIZE = 256
+print(f'Batch size used: {BATCH_SIZE}')
+train_loader = DataLoader(train_data, batch_size = BATCH_SIZE, shuffle = True, num_workers = 0)
+validate_loader = DataLoader(validate_data, batch_size = BATCH_SIZE, shuffle = True,
+                             num_workers = 0)
 
 ### set up everything for the training loop
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+print(f"CUDA is used: {torch.cuda.is_available()}")
+print(f'CUDA detects {torch.cuda.device_count()} devices.')
+print(f'CUDA device currently used: {torch.cuda.current_device()}')
 learning_rate = 0.01
+print(f'Learning rate: {learning_rate}')
 model_resnet18_adapted.to(device)  # TODO send model to device
 optimizer_adam = torch.optim.Adam(model_resnet18_adapted.parameters(), betas = (0.9, 0.999),
                                   # suggested default
@@ -204,7 +201,7 @@ for i in range(N_EPOCHS):
           criterion = cross_entropy_loss, optimizer = optimizer_adam)
     end_time_epoch = time.perf_counter()
     print(f'Epoch {i} of {N_EPOCHS} ran for {round(end_time_epoch - start_time_epoch, 2)} seconds.')
-    runtime_epochs.append(3)  # TODO collect metadata about the training)
+    runtime_epochs.append(round(end_time_epoch - start_time_epoch, 2))  # TODO collect metadata about the training)
 
 # TODO save the model state dict
 
