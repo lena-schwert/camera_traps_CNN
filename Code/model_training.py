@@ -168,7 +168,7 @@ search_space = {'learning_rate': tune.grid_search([0.1, 0.01, 0.001, 0.0001]), #
                 # %% MAIN CODE TRAINING LOOP + TESTING
 
 ### create the data_loader for training
-BATCH_SIZE = 128 
+BATCH_SIZE = 16
 print(f'Batch size used: {BATCH_SIZE}')
 train_loader = DataLoader(train_data, batch_size = BATCH_SIZE, shuffle = True, num_workers = 0)
 validate_loader = DataLoader(validate_data, batch_size = BATCH_SIZE, shuffle = True,
@@ -197,7 +197,7 @@ runtime_epochs = []
 
 for i in range(N_EPOCHS):
     start_time_epoch = time.perf_counter()
-    print(i)
+    print(f'Epoch {i} has started.')
     # call train function
     train(train_loader = train_loader, model = model_resnet18_adapted, device = device,
           criterion = cross_entropy_loss, optimizer = optimizer_adam)
