@@ -31,6 +31,7 @@ else:
 print(f'Working directory changed to: {os.getcwd()}')
 
 image_directory = os.path.join(os.getcwd(), 'image_data')
+start_script = time.perf_counter()
 
 # %% LOAD PRETRAINED RESNET-18
 
@@ -111,18 +112,19 @@ transformations_simple_ResNet18 = transforms.Compose([transforms.RandomCrop((102
 
 ### decide for a class selection dict
 
-class_selection = "top_5_categories"
+CLASS_SELECTION = "top_5_categories"
 
-if class_selection == "top_3_categories":
+if CLASS_SELECTION == "top_3_categories":
     class_selection_ID_list = [('empty', 0), ('rat', 7), ('rabbit', 22)]
-elif class_selection == "top_5_categories":
+elif CLASS_SELECTION == "top_5_categories":
     class_selection_ID_list = [('empty', 0), ('rat', 7), ('rabbit', 22), ('petrel', 21), ('iguana', 3)]
 else:
     raise ValueError("Class selection not recognized. Specify a valid option")
 
 ### decide on the number of instances that are used
 
-samples_per_class = 1000
+SAMPLES_PER_CLASS = 10
+print(f'{SAMPLES_PER_CLASS} per class are used.')
 
 ### load the subset of the Island Conservation Dataset
 
@@ -130,7 +132,7 @@ dataset_top_5_categories = IslandConservationDataset(img_base_dir = image_direct
                                                      images_metadata_dataframe = images_metadata,
                                                      list_of_categories = class_selection_ID_list,
                                                      transformations = transformations_simple_ResNet18,
-                                                     samples_per_class = 1000)
+                                                     samples_per_class = SAMPLES_PER_CLASS)
 print(f'Categories used are: {dataset_top_5_categories.class_encoding}')
 
 ### do a train, validate, test split
@@ -179,8 +181,8 @@ for name, param in model_resnet18_adapted.named_parameters():
 # %% PREPARE FOR TRAINING
 
 ### create the data_loader for training
-BATCH_SIZE_TRAIN = 16
-BATCH_SIZE_VALIDATE = 16
+BATCH_SIZE_TRAIN = 64
+BATCH_SIZE_VALIDATE = 128
 LEARNING_RATE = 0.01
 
 print(f'Batch size used for training: {BATCH_SIZE_TRAIN}')
@@ -207,11 +209,13 @@ cross_entropy_multi_class_loss = nn.BCEWithLogitsLoss()
 # writer_tb = SummaryWriter()
 
 N_EPOCHS = 10
+print(f'Number of epochs: {N_EPOCHS}')
 
 results_dataframe = pd.DataFrame(
-    columns = ['epoch_number', 'epoch_runtime_s', 'train_loss', 'validate_loss', 'validate_accuracy',
-               'batch_size_train', 'batch_size_validate', 'learning_rate', 'pretrained', 'class_selection', 'samples_per_class',
-               'transformations'], index = np.arange(10))
+    columns = ['epoch_number', 'epoch_runtime_min', 'train_loss', 'validate_loss', 'validate_accuracy',
+               'validate_runtime_min', 'batch_size_train', 'batch_size_validate', 'learning_rate',
+               'pretrained', 'class_selection', 'samples_per_class', 'transformations'],
+    index = np.arange(10))
 results_dataframe['batch_size_train'] = results_dataframe['batch_size_train'].fillna(value = BATCH_SIZE_TRAIN)
 results_dataframe['batch_size_validate'] = results_dataframe['batch_size_validate'].fillna(value = BATCH_SIZE_VALIDATE)
 results_dataframe['learning_rate'] = results_dataframe['learning_rate'].fillna(
@@ -220,7 +224,7 @@ results_dataframe['pretrained'] = results_dataframe['pretrained'].fillna(value =
 results_dataframe['class_selection'] = results_dataframe['class_selection'].fillna(
     value = str(class_selection_ID_list))
 results_dataframe['samples_per_class'] = results_dataframe['samples_per_class'].fillna(
-    value = samples_per_class)
+    value = SAMPLES_PER_CLASS)
 results_dataframe['transformations'] = results_dataframe['transformations'].fillna(
     value = str(transformations_simple_ResNet18.transforms))
 
@@ -228,33 +232,43 @@ results_dataframe['transformations'] = results_dataframe['transformations'].fill
 
 start_datetime = datetime.now()
 for i in tqdm(range(N_EPOCHS)):
+    start_time_epoch = time.perf_counter()
     print(f'Epoch {i} has started.')
     results_dataframe.epoch_number[i] = i
     ############------------- TRAINING ---------------#################
     model_resnet18_adapted.train()
-    start_time_epoch = time.perf_counter()
+    start_time_epoch_train = time.perf_counter()
     epoch_train_loss = train(train_loader = train_loader, model = model_resnet18_adapted,
                              device = device, criterion = cross_entropy_multi_class_loss,
                              optimizer = optimizer_adam)
-    end_time_epoch = time.perf_counter()
-    print(f'Epoch {i} of {N_EPOCHS} ran for {round((end_time_epoch - start_time_epoch)/60, 2)} minutes.')
+    end_time_epoch_train = time.perf_counter()
     results_dataframe.epoch_number[i] = i
-    results_dataframe.epoch_runtime_s[i] = round(end_time_epoch - start_time_epoch, 2)
-    results_dataframe.train_loss[i] = epoch_train_loss
+    results_dataframe.epoch_runtime_min[i] = round((end_time_epoch_train - start_time_epoch_train) / 60, 2)
+    results_dataframe.train_loss[i] = epoch_train_loss.numpy()[0]
     ############------------- VALIDATION ---------------#################
     # validate the trained model for loss + accuracy
     model_resnet18_adapted.eval()
+    start_time_epoch_validate = time.perf_counter()
     epoch_validate_loss = validate(data_loader = validate_loader, model = model_resnet18_adapted,
                                    criterion = cross_entropy_multi_class_loss)
-    results_dataframe.validate_loss[i] = epoch_validate_loss
+    end_time_epoch_validate = time.perf_counter()
+    results_dataframe.validate_loss[i] = epoch_validate_loss.numpy()[0]
     results_dataframe.validate_accuracy[i] = None
+    results_dataframe.validate_runtime_min[i] = round((end_time_epoch_validate - start_time_epoch_validate)/60, 2)
 
     # save the results dataframe to disk with current results
-    file_name = f'{start_datetime.strftime("%d_%m_%Y_%H:%M:%S")}_SYS={socket.gethostname()}_BS={BATCH_SIZE_TRAIN}_LR={LEARNING_RATE}_N_EPOCHS={N_EPOCHS}_{class_selection}_SPC={samples_per_class}.csv'
-    results_dataframe.to_csv(path_or_buf = os.path.join(os.getcwd(), 'results', file_name))
+    file_name = f'{start_datetime.strftime("%d_%m_%Y_%H:%M:%S")}_SYS={socket.gethostname()}_BS={BATCH_SIZE_TRAIN}_LR={LEARNING_RATE}_EPOCHS={N_EPOCHS}_{CLASS_SELECTION}_SPC={SAMPLES_PER_CLASS}.csv'
+    results_dataframe.to_csv(path_or_buf = os.path.join(os.getcwd(), 'results', file_name), index = False)
+    print(f'Saved results of epoch {i} to disk.')
+    end_time_epoch = time.perf_counter()
+    print(f'Epoch {i} of {N_EPOCHS} ran for {round((end_time_epoch - start_time_epoch_train) / 60, 2)} minutes.')
 
 # save the model (after transferring to CPU)
-file_name_model = f'{start_datetime.strftime("%d_%m_%Y_%H:%M:%S")}_SYS={socket.gethostname()}_BS={BATCH_SIZE_TRAIN}_LR={LEARNING_RATE}_N_EPOCHS={N_EPOCHS}_{class_selection}_SPC={samples_per_class}.pt'
-torch.save(model_resnet18_adapted.save(), os.path.join(os.getcwd(), 'results', file_name_model))
+file_name_model = f'{start_datetime.strftime("%d_%m_%Y_%H:%M:%S")}_SYS={socket.gethostname()}_BS={BATCH_SIZE_TRAIN}_LR={LEARNING_RATE}_N_EPOCHS={N_EPOCHS}_{CLASS_SELECTION}_SPC={SAMPLES_PER_CLASS}.pt'
+torch.save(model_resnet18_adapted, os.path.join(os.getcwd(), 'results', file_name_model))
+print('Final model saved to disk.')
+end_script = time.perf_counter()
+print(f'Total script ran for {round((end_script-start_script)/60, 2)} minutes.')
+
 
 
