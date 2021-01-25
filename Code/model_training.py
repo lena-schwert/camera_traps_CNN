@@ -70,8 +70,8 @@ def train(train_loader, model, optimizer, device, criterion):
         # batch_error = batch_error.detach()
         # print(f'Cumulative loss at batch {batch_index} in current epoch: {epoch_loss}')
         end_batch = time.perf_counter()
-        print(f'Error of current batch is: {batch_error}')
-        print(f'Runtime of batch {batch_index} is {round(end_batch - start_batch, 2)}')
+        #print(f'Error of current batch is: {batch_error}')
+        #print(f'Runtime of batch {batch_index} is {round(end_batch - start_batch, 2)}')
         batch_time.append(end_batch - start_batch)
 
     epoch_loss = epoch_loss / train_loader.__len__()
@@ -81,15 +81,17 @@ def train(train_loader, model, optimizer, device, criterion):
 
 # %% VALIDATE FUNCTION
 
-def validate(data, model, criterion):
+def validate(data_loader, model, criterion):
+    print('Validating...')
+    validate_loss = 0
     with torch.no_grad():
-        # data: torch.utils.data.dataset.Subset
-        X_validate = data.dataset.tensors[0][data.indices]
-        y_validate = data.dataset.tensors[1][data.indices]
+        for batch_index, (image_batch, label_batch) in tqdm(enumerate(data_loader)):
+            image_batch, label_batch = image_batch.to(device), label_batch.to(device)
+            prediction_logit = model(image_batch)
+            batch_error = criterion(prediction_logit, label_batch)
+            validate_loss += batch_error.data
 
-        # calculate loss all at once (no batches needed)
-        # TODO check input with function declaration
-        validate_loss = None
+    validate_loss = validate_loss / data_loader.__len__()
 
     return validate_loss
 
@@ -105,7 +107,7 @@ transformations_simple_ResNet18 = transforms.Compose([transforms.RandomCrop((102
                                                           mean = [0.485, 0.456, 0.406],
                                                           std = [0.229, 0.224, 0.225])])
 
-# %% MAIN CODE SET UP THE DATA
+# %% SET UP THE DATA
 
 ### decide for a class selection dict
 
@@ -146,10 +148,9 @@ test_length = dataset_top_5_categories.__len__() - (train_length + val_length)
 train_data, temp = random_split(dataset_top_5_categories, [train_length, val_length + test_length])
 validate_data, test_data = random_split(temp, [val_length, test_length])
 
-# %% EXPLORE + ADAPT THE MODEL
+# %% ADAPT THE MODEL
 
 ### adapt model architecture to IslandConservationDataset
-
 # clone the model with deepcopy!
 model_resnet18_adapted = copy.deepcopy(model_resnet18_pytorch)
 
@@ -171,17 +172,22 @@ for name, param in model_resnet18_adapted.named_parameters():
 
 # %% INCLUDE RAY FOR MINIMAL HYPERPARAMETER TUNING
 
-# search_space = {'learning_rate': tune.grid_search([0.1, 0.01, 0.001, 0.0001]),  # 0.1-0.001 (powers of 10
+# search_space = {'LEARNING_RATE': tune.grid_search([0.1, 0.01, 0.001, 0.0001]),  # 0.1-0.001 (powers of 10
 #                 'batch_size': tune.grid_search([64, 128, 256])}
 
 
-# %% MAIN CODE TRAINING LOOP + TESTING
+# %% PREPARE FOR TRAINING
 
 ### create the data_loader for training
-BATCH_SIZE = 16
-print(f'Batch size used: {BATCH_SIZE}')
-train_loader = DataLoader(train_data, batch_size = BATCH_SIZE, shuffle = True, num_workers = 0)
-validate_loader = DataLoader(validate_data, batch_size = BATCH_SIZE, shuffle = True,
+BATCH_SIZE_TRAIN = 16
+BATCH_SIZE_VALIDATE = 16
+LEARNING_RATE = 0.01
+
+print(f'Batch size used for training: {BATCH_SIZE_TRAIN}')
+print(f'Batch size used for validation: {BATCH_SIZE_VALIDATE}')
+print(f'Learning rate: {LEARNING_RATE}')
+train_loader = DataLoader(train_data, batch_size = BATCH_SIZE_TRAIN, shuffle = True, num_workers = 0)
+validate_loader = DataLoader(validate_data, batch_size = BATCH_SIZE_VALIDATE, shuffle = True,
                              num_workers = 0)
 
 ### set up everything for the training loop
@@ -189,13 +195,12 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 print(f"CUDA is used: {torch.cuda.is_available()}")
 print(f'CUDA detects {torch.cuda.device_count()} devices.')
 # print(f'CUDA device currently used: {torch.cuda.current_device()}')
-learning_rate = 0.01
-print(f'Learning rate: {learning_rate}')
-model_resnet18_adapted.to(device)  # TODO send model to device
+
+model_resnet18_adapted.to(device)
 optimizer_adam = torch.optim.Adam(model_resnet18_adapted.parameters(), betas = (0.9, 0.999),
                                   # suggested default
                                   eps = 1e-08,  # suggested default, for numerical stability
-                                  lr = learning_rate, amsgrad = False)
+                                  lr = LEARNING_RATE, amsgrad = False)
 
 cross_entropy_multi_class_loss = nn.BCEWithLogitsLoss()
 
@@ -205,11 +210,12 @@ N_EPOCHS = 10
 
 results_dataframe = pd.DataFrame(
     columns = ['epoch_number', 'epoch_runtime_s', 'train_loss', 'validate_loss', 'validate_accuracy',
-               'batch_size', 'learning_rate', 'pretrained', 'class_selection', 'samples_per_class',
+               'batch_size_train', 'batch_size_validate', 'learning_rate', 'pretrained', 'class_selection', 'samples_per_class',
                'transformations'], index = np.arange(10))
-results_dataframe['batch_size'] = results_dataframe['batch_size'].fillna(value = BATCH_SIZE)
+results_dataframe['batch_size_train'] = results_dataframe['batch_size_train'].fillna(value = BATCH_SIZE_TRAIN)
+results_dataframe['batch_size_validate'] = results_dataframe['batch_size_validate'].fillna(value = BATCH_SIZE_VALIDATE)
 results_dataframe['learning_rate'] = results_dataframe['learning_rate'].fillna(
-    value = learning_rate)
+    value = LEARNING_RATE)
 results_dataframe['pretrained'] = results_dataframe['pretrained'].fillna(value = RESNET_PRETRAINED)
 results_dataframe['class_selection'] = results_dataframe['class_selection'].fillna(
     value = str(class_selection_ID_list))
@@ -217,6 +223,10 @@ results_dataframe['samples_per_class'] = results_dataframe['samples_per_class'].
     value = samples_per_class)
 results_dataframe['transformations'] = results_dataframe['transformations'].fillna(
     value = str(transformations_simple_ResNet18.transforms))
+
+today = date.today()
+
+# %% TRAINING LOOP
 
 for i in tqdm(range(N_EPOCHS)):
     print(f'Epoch {i} has started.')
@@ -232,17 +242,20 @@ for i in tqdm(range(N_EPOCHS)):
     results_dataframe.epoch_number[i] = i
     results_dataframe.epoch_runtime_s[i] = round(end_time_epoch - start_time_epoch, 2)
     results_dataframe.train_loss[i] = epoch_train_loss
-    ############------------- VALIDATION ---------------#################  # model.eval()
-    # TODO validate/test the trained model for accuracy
-
-
+    ############------------- VALIDATION ---------------#################
+    # validate the trained model for loss + accuracy
+    model_resnet18_adapted.eval()
+    epoch_validate_loss = validate(data_loader = validate_loader, model = model_resnet18_adapted,
+                                   criterion = cross_entropy_multi_class_loss)
+    results_dataframe.validate_loss[i] = epoch_validate_loss
+    results_dataframe.validate_accuracy[i] = None
 
     # save the results dataframe to disk with current results
-    today = date.today()
-    file_name = f'{today.strftime("%d_%m_%Y")}_BS={BATCH_SIZE}_LR={learning_rate}_N_EPOCHS={N_EPOCHS}_{class_selection}_SPC={samples_per_class}.csv'
+    file_name = f'{today.strftime("%d_%m_%Y")}_SYS={socket.gethostname()}_BS={BATCH_SIZE_TRAIN}_LR={LEARNING_RATE}_N_EPOCHS={N_EPOCHS}_{class_selection}_SPC={samples_per_class}.csv'
     results_dataframe.to_csv(path_or_buf = os.path.join(os.getcwd(), 'results', file_name))
 
+# save the model (after transferring to CPU)
+file_name_model = f'{today.strftime("%d_%m_%Y")}_SYS={socket.gethostname()}_BS={BATCH_SIZE_TRAIN}_LR={LEARNING_RATE}_N_EPOCHS={N_EPOCHS}_{class_selection}_SPC={samples_per_class}.pt'
+torch.save(model_resnet18_adapted.save(), os.path.join(os.getcwd(), 'results', file_name_model))
 
-
-# TODO save the model state dict after transferring to CPU
 
