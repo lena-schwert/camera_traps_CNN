@@ -26,6 +26,7 @@ from torchvision.datasets.folder import default_loader
 
 # data processing
 import pandas as pd
+import numpy as np
 
 # visualization
 
@@ -47,8 +48,9 @@ class IslandConservationDataset(Dataset):
     """
 
     def __init__(self, img_base_dir, images_metadata_dataframe, list_of_categories,
-                 transformations = None):
+                 transformations = None, samples_per_class = None):
         """
+        :type samples_per_class: int
         :type list_of_categories: list of tuples
         :param img_base_dir (string): absolute path to the image directory
         :param images_metadata_dataframe (pandas.DataFrame): dataframe containing file paths + labels
@@ -56,7 +58,6 @@ class IslandConservationDataset(Dataset):
         """
 
         ### create one-hot encoding for class_selection that is used in __getitem__
-
         self.class_encoding = []
         # one-hot encode the labels
         class_encoder_label = 0
@@ -76,7 +77,10 @@ class IslandConservationDataset(Dataset):
         for value in self.class_ID_selection:
             indices_class = images_metadata_dataframe[
                 images_metadata_dataframe['category_id'] == value].index
-            # TODO sample a given number from these indices
+            # uniformly sample a given amount of samples per class from the indices
+            if samples_per_class is not None:
+                indices_class = pd.Int64Index(np.random.choice(indices_class.values,
+                                                               size = samples_per_class, replace = False))
             if first_iter:
                 class_selection_indices = indices_class
                 first_iter = False
@@ -85,8 +89,6 @@ class IslandConservationDataset(Dataset):
 
         self.images_metadata_dataframe_subset = images_metadata_dataframe.loc[
             class_selection_indices]
-
-        # TODO: specify the total number of samples/number of samples per class and sample rows!
 
         # reset the index, such that the BatchSampler in DataLoader is not confused!
         self.images_metadata_dataframe_subset.reset_index(inplace = True)

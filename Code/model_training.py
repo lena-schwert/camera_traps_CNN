@@ -14,9 +14,11 @@ import os
 import platform
 import socket
 import time
+from datetime import date
 from tqdm import tqdm
 import copy
 import pandas as pd
+import numpy as np
 from custom_dataset_transformations import IslandConservationDataset
 
 if socket.gethostname() == 'Schlepptop':
@@ -32,9 +34,11 @@ image_directory = os.path.join(os.getcwd(), 'image_data')
 
 # %% LOAD PRETRAINED RESNET-18
 
+RESNET_PRETRAINED = True
+
 # torchvision version: 0.8.1
 model_resnet18_pytorch = torch.hub.load(repo_or_dir = 'pytorch/vision:v0.8.1', model = 'resnet18',
-                                        pretrained = True)
+                                        pretrained = RESNET_PRETRAINED)
 
 # %% LOAD THE METADATA/LABELS
 
@@ -72,14 +76,13 @@ def train(train_loader, model, optimizer, device, criterion):
 
     epoch_loss = epoch_loss / train_loader.__len__()
 
-    return epoch_loss  # , batch_time
+    return epoch_loss
 
 
 # %% VALIDATE FUNCTION
 
 def validate(data, model, criterion):
     with torch.no_grad():
-
         # data: torch.utils.data.dataset.Subset
         X_validate = data.dataset.tensors[0][data.indices]
         y_validate = data.dataset.tensors[1][data.indices]
@@ -106,19 +109,26 @@ transformations_simple_ResNet18 = transforms.Compose([transforms.RandomCrop((102
 
 ### decide for a class selection dict
 
-top_5_categories = [('empty', 0), ('rat', 7), ('rabbit', 22), ('petrel', 21), ('iguana', 3)]
+class_selection = "top_5_categories"
 
+if class_selection == "top_3_categories":
+    class_selection_ID_list = [('empty', 0), ('rat', 7), ('rabbit', 22)]
+elif class_selection == "top_5_categories":
+    class_selection_ID_list = [('empty', 0), ('rat', 7), ('rabbit', 22), ('petrel', 21), ('iguana', 3)]
+else:
+    raise ValueError("Class selection not recognized. Specify a valid option")
 
 ### decide on the number of instances that are used
 
-# TODO has yet to be implemented
+samples_per_class = 1000
 
 ### load the subset of the Island Conservation Dataset
 
 dataset_top_5_categories = IslandConservationDataset(img_base_dir = image_directory,
                                                      images_metadata_dataframe = images_metadata,
-                                                     list_of_categories = top_5_categories,
-                                                     transformations = transformations_simple_ResNet18)
+                                                     list_of_categories = class_selection_ID_list,
+                                                     transformations = transformations_simple_ResNet18,
+                                                     samples_per_class = 1000)
 print(f'Categories used are: {dataset_top_5_categories.class_encoding}')
 
 ### do a train, validate, test split
@@ -151,8 +161,7 @@ for name, param in model_resnet18_adapted.named_parameters():
 # adapt the output dimensions according to the class selection!
 # fully connected layer out-o
 model_resnet18_adapted.fc = nn.Linear(in_features = model_resnet18_pytorch.fc.in_features,
-                                      out_features = len(top_5_categories),
-                                      bias = True)
+                                      out_features = len(class_selection_ID_list), bias = True)
 
 # doublecheck the requires_grad attribute
 print('These are the layers that are trained:')
@@ -160,24 +169,13 @@ for name, param in model_resnet18_adapted.named_parameters():
     if param.requires_grad is True:
         print(name, param.requires_grad)
 
-
-# check whether dimensionality of input is suitable
-
-# debug_loader_all = DataLoader(dataset_top_5_categories, batch_size = BATCH_SIZE, shuffle = True,
-#                               num_workers = 0)
-#
-# image_batch_debug, labels_batch_debug = next(iter(debug_loader_all))
-# output = model_resnet18_adapted(image_batch_debug)
-# output.size()  # torch.Size([16, 5])
-# --> prediction over 5 classes for each sample
-
 # %% INCLUDE RAY FOR MINIMAL HYPERPARAMETER TUNING
 
 # search_space = {'learning_rate': tune.grid_search([0.1, 0.01, 0.001, 0.0001]),  # 0.1-0.001 (powers of 10
 #                 'batch_size': tune.grid_search([64, 128, 256])}
 
 
-                # %% MAIN CODE TRAINING LOOP + TESTING
+# %% MAIN CODE TRAINING LOOP + TESTING
 
 ### create the data_loader for training
 BATCH_SIZE = 16
@@ -190,7 +188,7 @@ validate_loader = DataLoader(validate_data, batch_size = BATCH_SIZE, shuffle = T
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 print(f"CUDA is used: {torch.cuda.is_available()}")
 print(f'CUDA detects {torch.cuda.device_count()} devices.')
-#print(f'CUDA device currently used: {torch.cuda.current_device()}')
+# print(f'CUDA device currently used: {torch.cuda.current_device()}')
 learning_rate = 0.01
 print(f'Learning rate: {learning_rate}')
 model_resnet18_adapted.to(device)  # TODO send model to device
@@ -201,30 +199,50 @@ optimizer_adam = torch.optim.Adam(model_resnet18_adapted.parameters(), betas = (
 
 cross_entropy_multi_class_loss = nn.BCEWithLogitsLoss()
 
-#writer_tb = SummaryWriter()
+# writer_tb = SummaryWriter()
 
 N_EPOCHS = 10
 
-runtime_epochs = []
+results_dataframe = pd.DataFrame(
+    columns = ['epoch_number', 'epoch_runtime_s', 'train_loss', 'validate_loss', 'validate_accuracy',
+               'batch_size', 'learning_rate', 'pretrained', 'class_selection', 'samples_per_class',
+               'transformations'], index = np.arange(10))
+results_dataframe['batch_size'] = results_dataframe['batch_size'].fillna(value = BATCH_SIZE)
+results_dataframe['learning_rate'] = results_dataframe['learning_rate'].fillna(
+    value = learning_rate)
+results_dataframe['pretrained'] = results_dataframe['pretrained'].fillna(value = RESNET_PRETRAINED)
+results_dataframe['class_selection'] = results_dataframe['class_selection'].fillna(
+    value = str(class_selection_ID_list))
+results_dataframe['samples_per_class'] = results_dataframe['samples_per_class'].fillna(
+    value = samples_per_class)
+results_dataframe['transformations'] = results_dataframe['transformations'].fillna(
+    value = str(transformations_simple_ResNet18.transforms))
 
 for i in tqdm(range(N_EPOCHS)):
-    start_time_epoch = time.perf_counter()
     print(f'Epoch {i} has started.')
+    results_dataframe.epoch_number[i] = i
     ############------------- TRAINING ---------------#################
     model_resnet18_adapted.train()
-    train(train_loader = train_loader, model = model_resnet18_adapted, device = device,
-          criterion = cross_entropy_multi_class_loss, optimizer = optimizer_adam)
+    start_time_epoch = time.perf_counter()
+    epoch_train_loss = train(train_loader = train_loader, model = model_resnet18_adapted,
+                             device = device, criterion = cross_entropy_multi_class_loss,
+                             optimizer = optimizer_adam)
     end_time_epoch = time.perf_counter()
-    print(f'Epoch {i} of {N_EPOCHS} ran for {round(end_time_epoch - start_time_epoch, 2)} seconds.')
-    runtime_epochs.append(round(end_time_epoch - start_time_epoch, 2))  # TODO collect metadata about the training)
+    print(f'Epoch {i} of {N_EPOCHS} ran for {round((end_time_epoch - start_time_epoch)/60, 2)} minutes.')
+    results_dataframe.epoch_number[i] = i
+    results_dataframe.epoch_runtime_s[i] = round(end_time_epoch - start_time_epoch, 2)
+    results_dataframe.train_loss[i] = epoch_train_loss
+    ############------------- VALIDATION ---------------#################  # model.eval()
+    # TODO validate/test the trained model for accuracy
 
-    ############------------- VALIDATION ---------------#################
-    # model.eval()
 
 
-# TODO validate/test the trained model for accuracy
+    # save the results dataframe to disk with current results
+    today = date.today()
+    file_name = f'{today.strftime("%d_%m_%Y")}_BS={BATCH_SIZE}_LR={learning_rate}_N_EPOCHS={N_EPOCHS}_{class_selection}_SPC={samples_per_class}.csv'
+    results_dataframe.to_csv(path_or_buf = os.path.join(os.getcwd(), 'results', file_name))
+
+
 
 # TODO save the model state dict after transferring to CPU
-
-
 
