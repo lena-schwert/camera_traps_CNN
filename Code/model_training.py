@@ -14,7 +14,7 @@ import os
 import platform
 import socket
 import time
-from datetime import date
+from datetime import datetime
 from tqdm import tqdm
 import copy
 import pandas as pd
@@ -224,10 +224,9 @@ results_dataframe['samples_per_class'] = results_dataframe['samples_per_class'].
 results_dataframe['transformations'] = results_dataframe['transformations'].fillna(
     value = str(transformations_simple_ResNet18.transforms))
 
-today = date.today()
-
 # %% TRAINING LOOP
 
+start_datetime = datetime.now()
 for i in tqdm(range(N_EPOCHS)):
     print(f'Epoch {i} has started.')
     results_dataframe.epoch_number[i] = i
@@ -251,11 +250,11 @@ for i in tqdm(range(N_EPOCHS)):
     results_dataframe.validate_accuracy[i] = None
 
     # save the results dataframe to disk with current results
-    file_name = f'{today.strftime("%d_%m_%Y")}_SYS={socket.gethostname()}_BS={BATCH_SIZE_TRAIN}_LR={LEARNING_RATE}_N_EPOCHS={N_EPOCHS}_{class_selection}_SPC={samples_per_class}.csv'
+    file_name = f'{start_datetime.strftime("%d_%m_%Y_%H:%M:%S")}_SYS={socket.gethostname()}_BS={BATCH_SIZE_TRAIN}_LR={LEARNING_RATE}_N_EPOCHS={N_EPOCHS}_{class_selection}_SPC={samples_per_class}.csv'
     results_dataframe.to_csv(path_or_buf = os.path.join(os.getcwd(), 'results', file_name))
 
 # save the model (after transferring to CPU)
-file_name_model = f'{today.strftime("%d_%m_%Y")}_SYS={socket.gethostname()}_BS={BATCH_SIZE_TRAIN}_LR={LEARNING_RATE}_N_EPOCHS={N_EPOCHS}_{class_selection}_SPC={samples_per_class}.pt'
+file_name_model = f'{start_datetime.strftime("%d_%m_%Y_%H:%M:%S")}_SYS={socket.gethostname()}_BS={BATCH_SIZE_TRAIN}_LR={LEARNING_RATE}_N_EPOCHS={N_EPOCHS}_{class_selection}_SPC={samples_per_class}.pt'
 torch.save(model_resnet18_adapted.save(), os.path.join(os.getcwd(), 'results', file_name_model))
 
 
