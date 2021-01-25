@@ -20,6 +20,7 @@ import copy
 import pandas as pd
 import numpy as np
 from custom_dataset_transformations import IslandConservationDataset
+import warnings
 
 if socket.gethostname() == 'Schlepptop':
     os.chdir('/home/lena/git/research_project/')
@@ -32,6 +33,8 @@ print(f'Working directory changed to: {os.getcwd()}')
 
 image_directory = os.path.join(os.getcwd(), 'image_data')
 start_script = time.perf_counter()
+
+warnings.filterwarnings("ignore")
 
 # %% LOAD PRETRAINED RESNET-18
 
@@ -141,7 +144,7 @@ else:
 
 ### decide on the number of instances that are used
 
-print(f'{SAMPLES_PER_CLASS} per class are used.')
+print(f'{SAMPLES_PER_CLASS} samples per class are used.')
 
 ### load the subset of the Island Conservation Dataset
 
