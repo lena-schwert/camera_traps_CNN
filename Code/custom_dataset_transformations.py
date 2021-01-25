@@ -17,6 +17,7 @@ else:
     print("Please specify the working directory manually!")
 
 # neural network stuff
+import torch
 import torchvision
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
@@ -32,6 +33,7 @@ import pandas as pd
 import time
 from tqdm import tqdm
 
+
 # %% Create a custom PyTorch dataset
 
 
@@ -44,24 +46,36 @@ class IslandConservationDataset(Dataset):
     from class doc: "All datasets that represent a map from keys to data samples should subclass it."
     """
 
-    def __init__(self, img_base_dir, images_metadata_dataframe, dict_of_categories, transformations = None):
+    def __init__(self, img_base_dir, images_metadata_dataframe, list_of_categories,
+                 transformations = None):
         """
-        :type dict_of_categories: dict
+        :type list_of_categories: list of tuples
         :param img_base_dir (string): absolute path to the image directory
         :param images_metadata_dataframe (pandas.DataFrame): dataframe containing file paths + labels
         :param transformations (torchvision.transforms.Compose): object that summarizes all transformations
         """
+
+        ### create one-hot encoding for class_selection that is used in __getitem__
+
+        self.class_encoding = []
+        # one-hot encode the labels
+        class_encoder_label = 0
+        for encoder_index in list_of_categories:
+            self.class_encoding.append((class_encoder_label, encoder_index[0], encoder_index[1]))
+            class_encoder_label += 1
+
         ### create a subset of the dataset containing only the specified category IDs
         global class_selection_indices
-        self.class_ID_selection = dict_of_categories.values()
-        self.class_selection_dict = dict_of_categories
+        self.class_ID_selection = []
+        for i in list_of_categories:
+            self.class_ID_selection.append(i[1])
 
-        # create a string that is used for filtering the dataset by arbitrarily many categories
-        # collect list of row indices
+        # collect list of row indices of type pandas.Index
 
         first_iter = True
         for value in self.class_ID_selection:
-            indices_class = images_metadata_dataframe[images_metadata_dataframe['category_id'] == value].index
+            indices_class = images_metadata_dataframe[
+                images_metadata_dataframe['category_id'] == value].index
             # TODO sample a given number from these indices
             if first_iter:
                 class_selection_indices = indices_class
@@ -69,11 +83,30 @@ class IslandConservationDataset(Dataset):
             else:
                 class_selection_indices = class_selection_indices.union(indices_class, sort = None)
 
-        self.images_metadata_dataframe_subset = images_metadata_dataframe.loc[class_selection_indices]
-        # reset the index, such that the BatchSampler in DataLoader is not confused!
-        self.images_metadata_dataframe_subset.reset_index(inplace = True)
+        self.images_metadata_dataframe_subset = images_metadata_dataframe.loc[
+            class_selection_indices]
 
         # TODO: specify the total number of samples/number of samples per class and sample rows!
+
+        # reset the index, such that the BatchSampler in DataLoader is not confused!
+        self.images_metadata_dataframe_subset.reset_index(inplace = True)
+        # important that this happens AFTER REINDEXING, such that the row indices are the same!
+
+        # encode the label to create tensor of suitable size (must be same size as prediction
+        # output by the network to calculate cross entropy)
+        self.class_encoding_lookup_tensor = torch.zeros(
+            size = (self.images_metadata_dataframe_subset.shape[0], len(self.class_encoding)))
+
+        print('Accessing the labels...')
+        i = 0
+        for label in tqdm(self.images_metadata_dataframe_subset['category_id']):
+            temporary_row_tensor = torch.zeros(len(self.class_encoding))
+            for entry in self.class_encoding:
+                if entry[2] == label:
+                    true_label_look_up = entry[0]
+                    temporary_row_tensor[true_label_look_up] = 1.
+            self.class_encoding_lookup_tensor[i, :] = temporary_row_tensor
+            i += 1
 
         ### do remaining assignments required for correct initiation
         self.img_base_dir = img_base_dir
@@ -100,7 +133,8 @@ class IslandConservationDataset(Dataset):
 
         from class doc: "supports fetching a data sample for a given key"
 
-        :param item: specifies the index in the entire dataset?
+        :param item: int specifies the index in the entire dataset (is never of multiple dimensions,
+        the batch sampler simply calls this method multiple times and then concats the results)
         :return: tuple of the transformed image and its label as integer
         """
         ### copied from microsoft/CameraTraps/train_classifier.py
@@ -118,8 +152,8 @@ class IslandConservationDataset(Dataset):
             raise TypeError(
                 f"The loaded image is not in RGB mode. Doublecheck image {img_rel_path}.")
 
-        # access the image's label
-        true_label = self.images_metadata_dataframe_subset['category_id'][item]
+        # access the image's one-hot encoded label
+        true_label_encoded = self.class_encoding_lookup_tensor[item]
 
         if self.transforms is not None:
             img_transformed = self.transforms(img)
@@ -127,42 +161,40 @@ class IslandConservationDataset(Dataset):
             img_transformed = img
 
         # TODO depending on what train() requires, maybe change returned dtype, e.g. to dict
-        return img_transformed, true_label
+        return img_transformed, true_label_encoded
 
 
 if __name__ == "__main__":
 
-# %% Load the dataframe with all metadata/labels for each valid image
+    # %% Load the dataframe with all metadata/labels for each valid image
 
-    images_metadata = pd.read_pickle(os.path.join(os.getcwd(), 'Code/images_metadata_preprocessed.pkl'))
+    images_metadata = pd.read_pickle(
+        os.path.join(os.getcwd(), 'Code/images_metadata_preprocessed.pkl'))
 
     image_directory = "/home/lena/git/research_project/image_data/"
     ## %% Specify image transformations
 
-    transformations_simple = transforms.Compose([
-        transforms.RandomCrop((1024, 1280)),  # (height, width) resize all images to smallest common image size
-        transforms.ToTensor(),  # creates FloatTensor scaled to the range [0,1]
-    ])
+    transformations_simple = transforms.Compose([transforms.RandomCrop((1024, 1280)),
+                                                 # (height, width) resize all images to smallest common image size
+                                                 transforms.ToTensor(),
+                                                 # creates FloatTensor scaled to the range [0,1]
+                                                 ])
 
-    transformations_simple_ResNet18 = transforms.Compose([
-        transforms.RandomCrop((1024, 1280)),  # (height, width) resize all images to smallest common image size
-        transforms.ToTensor(),  # creates FloatTensor scaled to the range [0,1]
-        transforms.Normalize(mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225])
-    ])
+    transformations_simple_ResNet18 = transforms.Compose([transforms.RandomCrop((1024, 1280)),
+                                                          # (height, width) resize all images to smallest common image size
+                                                          transforms.ToTensor(),
+                                                          # creates FloatTensor scaled to the range [0,1]
+                                                          transforms.Normalize(
+                                                              mean = [0.485, 0.456, 0.406],
+                                                              std = [0.229, 0.224, 0.225])])
 
     # %% Fulfulling requirements for PyTorch's ResNet implementation
 
-    top_5_categories = {
-        'empty': 0,
-        'rat': 7,
-        'rabbit': 22,
-        'petrel': 21,
-        'iguana': 3
-    }
+    top_5_categories = {'empty': 0, 'rat': 7, 'rabbit': 22, 'petrel': 21, 'iguana': 3}
 
     dataset = IslandConservationDataset(img_base_dir = image_directory,
                                         images_metadata_dataframe = images_metadata,
-                                        dict_of_categories = top_5_categories,
+                                        list_of_categories = top_5_categories,
                                         transformations = transformations_simple_ResNet18)
 
     # test_img = dataset.__getitem__(3)[0]
@@ -172,10 +204,7 @@ if __name__ == "__main__":
     # type(test_img)
     # test_img.unsqueeze(0).shape
 
-
     # %% Creating a dataloader
-
-
 
     # check that the data loader works as expected
 
@@ -185,8 +214,7 @@ if __name__ == "__main__":
 
     # access data in batches using the DataLoader
     batch_size = 32
-    data_loader = DataLoader(dataset, batch_size = batch_size,
-                             shuffle = False, num_workers = 0)
+    data_loader = DataLoader(dataset, batch_size = batch_size, shuffle = False, num_workers = 0)
 
     # start_time_batch = time.perf_counter()
     # next(iter(data_loader))
@@ -197,15 +225,16 @@ if __name__ == "__main__":
     start_time_data_loader_loop = time.perf_counter()
     iteration = 0
     for batch_index, (image_batch, label_batch) in tqdm(enumerate(data_loader)):
-        #print(image_batch)
-        #print(label_batch)
+        # print(image_batch)
+        # print(label_batch)
         iteration += 1
         if iteration % 100 == 0:
-            print(f'Loop is already running for {round(time.perf_counter()-start_time_data_loader_loop, 2)/60} minutes.')
+            print(
+                f'Loop is already running for {round(time.perf_counter() - start_time_data_loader_loop, 2) / 60} minutes.')
             print(f'We are at batch {batch_index} of {data_loader.__len__()}')
     end_time_data_loader_loop = time.perf_counter()
-    print(f"Iterating through the dataloader with batch size {batch_size} took {round(end_time_data_loader_loop-start_time_data_loader_loop, 2)} seconds.")
-
+    print(
+        f"Iterating through the dataloader with batch size {batch_size} took {round(end_time_data_loader_loop - start_time_data_loader_loop, 2)} seconds.")
 
     ### Look at the returned image tensor
     # source: https://stackoverflow.com/questions/53623472/how-do-i-display-a-single-image-in-pytorch
@@ -221,21 +250,9 @@ if __name__ == "__main__":
 
     show_images(image_batch_torchvision, title = label_batch)
 
-
-
-
-
-
-
-
-
-
-
 # %% Look at images with matplotlib/tensorboard
 
 # writer = SummaryWriter('runs/visualize_images')
-
-
 
 
 # %% Old hacky code
@@ -243,33 +260,31 @@ if __name__ == "__main__":
 # makes sure that the code below is not executed, when functions are imported
 # gets only executed if .py is executed in terminal
 
-    ### Using Microsoft CameraTraps tools
-    #
-    # ### using data_management/databases
-    #
-    # # easy access to class count
-    # from MicrosoftCameraTraps.data_management.databases.sanity_check_json_db import \
-    #     sanity_check_json_db
-    #
-    # sanity_check_json_db("/home/lena/git/research_project/island_conservation.json")
-    #
-    # from MicrosoftCameraTraps.data_management.cct_json_to_filename_json import \
-    #     convertJsonToStringList
-    #
-    # rel_file_path_list, out_file_name = convertJsonToStringList(
-    #     inputFilename = "/home/lena/git/research_project/island_conservation.json",
-    #     outputFilename = "island_conservation_all_rel_file_paths.json")
-    #
-    # ### using data_management/cct_json_utils.py
-    # from MicrosoftCameraTraps.data_management.cct_json_utils import CameraTrapJsonUtils
-    #
-    # # def order_db_keys(db: JSONObject) -> OrderedDict:
-    # json_ordered = CameraTrapJsonUtils.order_db_keys(json_loaded)
-    #
-    # from MicrosoftCameraTraps.data_management.cct_json_utils import IndexedJsonDb
-    #
-    # json_db_island_conserv = IndexedJsonDb(
-    #     "/home/lena/git/research_project/island_conservation.json")
-    #
-
-
+### Using Microsoft CameraTraps tools
+#
+# ### using data_management/databases
+#
+# # easy access to class count
+# from MicrosoftCameraTraps.data_management.databases.sanity_check_json_db import \
+#     sanity_check_json_db
+#
+# sanity_check_json_db("/home/lena/git/research_project/island_conservation.json")
+#
+# from MicrosoftCameraTraps.data_management.cct_json_to_filename_json import \
+#     convertJsonToStringList
+#
+# rel_file_path_list, out_file_name = convertJsonToStringList(
+#     inputFilename = "/home/lena/git/research_project/island_conservation.json",
+#     outputFilename = "island_conservation_all_rel_file_paths.json")
+#
+# ### using data_management/cct_json_utils.py
+# from MicrosoftCameraTraps.data_management.cct_json_utils import CameraTrapJsonUtils
+#
+# # def order_db_keys(db: JSONObject) -> OrderedDict:
+# json_ordered = CameraTrapJsonUtils.order_db_keys(json_loaded)
+#
+# from MicrosoftCameraTraps.data_management.cct_json_utils import IndexedJsonDb
+#
+# json_db_island_conserv = IndexedJsonDb(
+#     "/home/lena/git/research_project/island_conservation.json")
+#

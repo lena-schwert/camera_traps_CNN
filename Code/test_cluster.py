@@ -32,11 +32,11 @@ transformations_simple_ResNet18 = transforms.Compose([transforms.RandomCrop((102
                                                           mean = [0.485, 0.456, 0.406],
                                                           std = [0.229, 0.224, 0.225])])
 
-top_5_categories = {'empty': 0, 'rat': 7, 'rabbit': 22, 'petrel': 21, 'iguana': 3}
+top_5_categories = [('empty', 0), ('rat', 7), ('rabbit', 22), ('petrel', 21), ('iguana', 3)]
 
 dataset = IslandConservationDataset(img_base_dir = image_directory,
                                     images_metadata_dataframe = images_metadata,
-                                    dict_of_categories = top_5_categories,
+                                    list_of_categories = top_5_categories,
                                     transformations = transformations_simple_ResNet18)
 
 batch_size = 256

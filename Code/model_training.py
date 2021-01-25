@@ -14,7 +14,7 @@ import os
 import platform
 import socket
 import time
-import tqdm
+from tqdm import tqdm
 import copy
 import pandas as pd
 from custom_dataset_transformations import IslandConservationDataset
@@ -45,18 +45,16 @@ images_metadata = pd.read_pickle(os.path.join(os.getcwd(), 'Code/images_metadata
 
 
 def train(train_loader, model, optimizer, device, criterion):
-    model.train()
     epoch_loss = 0
     batch_time = []
-    for batch_index, (image_batch, label_batch) in enumerate(train_loader):
+    for batch_index, (image_batch, label_batch) in tqdm(enumerate(train_loader)):
         start_batch = time.perf_counter()
         # transfer data to active device (not sure whether necessary)
         image_batch, label_batch = image_batch.to(device), label_batch.to(device)
         # reset the gradients to zero, so they don't accumulate
         optimizer.zero_grad()
         # calculate model output on batch
-        prediction_logit = model(image_batch)  # TODO make prediction using the model
-        # TODO make sure that the labels are one-hot encoded (= probability distribution)
+        prediction_logit = model(image_batch)
         # calculate the loss, input in shape of (prediction, labels)
         batch_error = criterion(prediction_logit, label_batch)
         # do backpropagation using the error
@@ -80,7 +78,6 @@ def train(train_loader, model, optimizer, device, criterion):
 # %% VALIDATE FUNCTION
 
 def validate(data, model, criterion):
-    model.eval()
     with torch.no_grad():
 
         # data: torch.utils.data.dataset.Subset
@@ -109,7 +106,8 @@ transformations_simple_ResNet18 = transforms.Compose([transforms.RandomCrop((102
 
 ### decide for a class selection dict
 
-top_5_categories = {'empty': 0, 'rat': 7, 'rabbit': 22, 'petrel': 21, 'iguana': 3}
+top_5_categories = [('empty', 0), ('rat', 7), ('rabbit', 22), ('petrel', 21), ('iguana', 3)]
+
 
 ### decide on the number of instances that are used
 
@@ -119,9 +117,9 @@ top_5_categories = {'empty': 0, 'rat': 7, 'rabbit': 22, 'petrel': 21, 'iguana': 
 
 dataset_top_5_categories = IslandConservationDataset(img_base_dir = image_directory,
                                                      images_metadata_dataframe = images_metadata,
-                                                     dict_of_categories = top_5_categories,
+                                                     list_of_categories = top_5_categories,
                                                      transformations = transformations_simple_ResNet18)
-print(f'Categories used are: {dataset_top_5_categories.class_selection_dict}')
+print(f'Categories used are: {dataset_top_5_categories.class_encoding}')
 
 ### do a train, validate, test split
 
@@ -144,10 +142,24 @@ validate_data, test_data = random_split(temp, [val_length, test_length])
 
 # clone the model with deepcopy!
 model_resnet18_adapted = copy.deepcopy(model_resnet18_pytorch)
+
+# set all gradients to zero = FREEZE THE MODEL STATE FOR FINETUNING
+for name, param in model_resnet18_adapted.named_parameters():
+    if param.requires_grad is True:
+        param.requires_grad = False
+
 # adapt the output dimensions according to the class selection!
-# fully connected layer out-of-the-box: Linear(in_features=512, out_features=1000, bias=True)
-model_resnet18_adapted.fc = nn.Linear(in_features = 512, out_features = len(top_5_categories),
+# fully connected layer out-o
+model_resnet18_adapted.fc = nn.Linear(in_features = model_resnet18_pytorch.fc.in_features,
+                                      out_features = len(top_5_categories),
                                       bias = True)
+
+# doublecheck the requires_grad attribute
+print('These are the layers that are trained:')
+for name, param in model_resnet18_adapted.named_parameters():
+    if param.requires_grad is True:
+        print(name, param.requires_grad)
+
 
 # check whether dimensionality of input is suitable
 
@@ -161,8 +173,8 @@ model_resnet18_adapted.fc = nn.Linear(in_features = 512, out_features = len(top_
 
 # %% INCLUDE RAY FOR MINIMAL HYPERPARAMETER TUNING
 
-search_space = {'learning_rate': tune.grid_search([0.1, 0.01, 0.001, 0.0001]), # 0.1-0.001 (powers of 10
-                'batch_size': tune.grid_search([64, 128, 256])}
+# search_space = {'learning_rate': tune.grid_search([0.1, 0.01, 0.001, 0.0001]),  # 0.1-0.001 (powers of 10
+#                 'batch_size': tune.grid_search([64, 128, 256])}
 
 
                 # %% MAIN CODE TRAINING LOOP + TESTING
@@ -178,7 +190,7 @@ validate_loader = DataLoader(validate_data, batch_size = BATCH_SIZE, shuffle = T
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 print(f"CUDA is used: {torch.cuda.is_available()}")
 print(f'CUDA detects {torch.cuda.device_count()} devices.')
-print(f'CUDA device currently used: {torch.cuda.current_device()}')
+#print(f'CUDA device currently used: {torch.cuda.current_device()}')
 learning_rate = 0.01
 print(f'Learning rate: {learning_rate}')
 model_resnet18_adapted.to(device)  # TODO send model to device
@@ -187,25 +199,32 @@ optimizer_adam = torch.optim.Adam(model_resnet18_adapted.parameters(), betas = (
                                   eps = 1e-08,  # suggested default, for numerical stability
                                   lr = learning_rate, amsgrad = False)
 
-cross_entropy_loss = nn.CrossEntropyLoss(reduction = 'mean')
+cross_entropy_multi_class_loss = nn.BCEWithLogitsLoss()
 
-writer_tb = SummaryWriter()
+#writer_tb = SummaryWriter()
 
 N_EPOCHS = 10
 
 runtime_epochs = []
 
-for i in range(N_EPOCHS):
+for i in tqdm(range(N_EPOCHS)):
     start_time_epoch = time.perf_counter()
     print(f'Epoch {i} has started.')
-    # call train function
+    ############------------- TRAINING ---------------#################
+    model_resnet18_adapted.train()
     train(train_loader = train_loader, model = model_resnet18_adapted, device = device,
-          criterion = cross_entropy_loss, optimizer = optimizer_adam)
+          criterion = cross_entropy_multi_class_loss, optimizer = optimizer_adam)
     end_time_epoch = time.perf_counter()
     print(f'Epoch {i} of {N_EPOCHS} ran for {round(end_time_epoch - start_time_epoch, 2)} seconds.')
     runtime_epochs.append(round(end_time_epoch - start_time_epoch, 2))  # TODO collect metadata about the training)
 
-# TODO save the model state dict
+    ############------------- VALIDATION ---------------#################
+    # model.eval()
 
 
 # TODO validate/test the trained model for accuracy
+
+# TODO save the model state dict after transferring to CPU
+
+
+
