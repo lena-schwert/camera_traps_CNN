@@ -7,8 +7,6 @@
 
 # for interaction with the system
 import os
-import platform
-import subprocess
 import socket
 
 if socket.gethostname() == 'Schlepptop':
@@ -18,36 +16,24 @@ elif socket.gethostname() == 'ml3-gpu2':
 else:
     print("Please specify the working directory manually!")
 
-
 # neural network stuff
-import torch
 import torchvision
-from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
-from torchvision import transforms, utils
+from torchvision import transforms
 from torchvision.datasets.folder import default_loader
 
 # data processing
 import pandas as pd
-import json
-from PIL import Image
 
 # visualization
-import matplotlib.pyplot as plt
-from skimage import io
-import seaborn as sns
 
 # utility functions
-from IslandConservationDataset_utilities import show_image_given_its_ID, show_labels_given_image_ID
-from IslandConservationDataset_utilities import return_image_batch_given_category_ID
 import time
 from tqdm import tqdm
 
-
 # %% Create a custom PyTorch dataset
 
-# example: https://pytorch.org/tutorials/beginner/data_loading_tutorial.html
 
 class IslandConservationDataset(Dataset):
     """
@@ -91,8 +77,6 @@ class IslandConservationDataset(Dataset):
 
         ### do remaining assignments required for correct initiation
         self.img_base_dir = img_base_dir
-        #self.all_img_file_paths = images_metadata_dataframe_c['file_name']
-        #self.labels = images_metadata_dataframe['category_id']
         self.transforms = transformations
 
         # specifically use the PIL image backend (accimage has too few transforms implemented)
