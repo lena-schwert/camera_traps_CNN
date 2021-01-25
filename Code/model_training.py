@@ -126,7 +126,7 @@ if socket.gethostname() == 'Schlepptop':
     SAMPLES_PER_CLASS = 10
 elif socket.gethostname() == 'ml3-gpu2':
     BATCH_SIZE_TRAIN = 64
-    BATCH_SIZE_VALIDATE = 128
+    BATCH_SIZE_VALIDATE = 64
     LEARNING_RATE = 0.01
     CLASS_SELECTION = "top_5_categories"
     SAMPLES_PER_CLASS = 100
