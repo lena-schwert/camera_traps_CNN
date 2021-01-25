@@ -244,7 +244,7 @@ for i in tqdm(range(N_EPOCHS)):
     end_time_epoch_train = time.perf_counter()
     results_dataframe.epoch_number[i] = i
     results_dataframe.epoch_runtime_min[i] = round((end_time_epoch_train - start_time_epoch_train) / 60, 2)
-    results_dataframe.train_loss[i] = epoch_train_loss.numpy()[0]
+    results_dataframe.train_loss[i] = epoch_train_loss.cpu().numpy()[0]
     ############------------- VALIDATION ---------------#################
     # validate the trained model for loss + accuracy
     model_resnet18_adapted.eval()
@@ -252,7 +252,7 @@ for i in tqdm(range(N_EPOCHS)):
     epoch_validate_loss = validate(data_loader = validate_loader, model = model_resnet18_adapted,
                                    criterion = cross_entropy_multi_class_loss)
     end_time_epoch_validate = time.perf_counter()
-    results_dataframe.validate_loss[i] = epoch_validate_loss.numpy()[0]
+    results_dataframe.validate_loss[i] = epoch_validate_loss.cpu().numpy()[0]
     results_dataframe.validate_accuracy[i] = None
     results_dataframe.validate_runtime_min[i] = round((end_time_epoch_validate - start_time_epoch_validate)/60, 2)
 
