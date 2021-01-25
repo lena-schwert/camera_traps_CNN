@@ -109,10 +109,28 @@ transformations_simple_ResNet18 = transforms.Compose([transforms.RandomCrop((102
                                                           std = [0.229, 0.224, 0.225])])
 
 # %% SET UP THE DATA
+global BATCH_SIZE_TRAIN
+global BATCH_SIZE_VALIDATE
+global LEARNING_RATE
+global CLASS_SELECTION
+global SAMPLES_PER_CLASS
+
+if socket.gethostname() == 'Schlepptop':
+    BATCH_SIZE_TRAIN = 16
+    BATCH_SIZE_VALIDATE = 16
+    LEARNING_RATE = 0.01
+    CLASS_SELECTION = "top_5_categories"
+    SAMPLES_PER_CLASS = 10
+elif socket.gethostname() == 'ml3-gpu2':
+    BATCH_SIZE_TRAIN = 64
+    BATCH_SIZE_VALIDATE = 128
+    LEARNING_RATE = 0.01
+    CLASS_SELECTION = "top_5_categories"
+    SAMPLES_PER_CLASS = 100
+else:
+    print("Error, error!")
 
 ### decide for a class selection dict
-
-CLASS_SELECTION = "top_5_categories"
 
 if CLASS_SELECTION == "top_3_categories":
     class_selection_ID_list = [('empty', 0), ('rat', 7), ('rabbit', 22)]
@@ -123,7 +141,6 @@ else:
 
 ### decide on the number of instances that are used
 
-SAMPLES_PER_CLASS = 10
 print(f'{SAMPLES_PER_CLASS} per class are used.')
 
 ### load the subset of the Island Conservation Dataset
@@ -181,9 +198,6 @@ for name, param in model_resnet18_adapted.named_parameters():
 # %% PREPARE FOR TRAINING
 
 ### create the data_loader for training
-BATCH_SIZE_TRAIN = 64
-BATCH_SIZE_VALIDATE = 128
-LEARNING_RATE = 0.01
 
 print(f'Batch size used for training: {BATCH_SIZE_TRAIN}')
 print(f'Batch size used for validation: {BATCH_SIZE_VALIDATE}')
@@ -244,7 +258,7 @@ for i in tqdm(range(N_EPOCHS)):
     end_time_epoch_train = time.perf_counter()
     results_dataframe.epoch_number[i] = i
     results_dataframe.epoch_runtime_min[i] = round((end_time_epoch_train - start_time_epoch_train) / 60, 2)
-    results_dataframe.train_loss[i] = epoch_train_loss.cpu().numpy()[0]
+    results_dataframe.train_loss[i] = float(epoch_train_loss.cpu())
     ############------------- VALIDATION ---------------#################
     # validate the trained model for loss + accuracy
     model_resnet18_adapted.eval()
@@ -252,7 +266,7 @@ for i in tqdm(range(N_EPOCHS)):
     epoch_validate_loss = validate(data_loader = validate_loader, model = model_resnet18_adapted,
                                    criterion = cross_entropy_multi_class_loss)
     end_time_epoch_validate = time.perf_counter()
-    results_dataframe.validate_loss[i] = epoch_validate_loss.cpu().numpy()[0]
+    results_dataframe.validate_loss[i] = float(epoch_validate_loss.cpu())
     results_dataframe.validate_accuracy[i] = None
     results_dataframe.validate_runtime_min[i] = round((end_time_epoch_validate - start_time_epoch_validate)/60, 2)
 
@@ -269,6 +283,3 @@ torch.save(model_resnet18_adapted, os.path.join(os.getcwd(), 'results', file_nam
 print('Final model saved to disk.')
 end_script = time.perf_counter()
 print(f'Total script ran for {round((end_script-start_script)/60, 2)} minutes.')
-
-
-
