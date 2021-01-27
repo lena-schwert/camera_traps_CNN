@@ -122,8 +122,8 @@ def validate(data_loader, model, criterion):
 # %% SPECIFY TRANSFORMATIONS
 
 # noinspection DuplicatedCode
-transformations_simple_ResNet18 = transforms.Compose([transforms.RandomCrop((1024, 1280)),
-                                                      # (height, width) resize all images to smallest common image size
+transformations_simple_ResNet18 = transforms.Compose([transforms.Resize((1000, int(1000*1.4))),
+                                                      # (height, width) resize all images to same size with median image ratio 1.4
                                                       transforms.ToTensor(),
                                                       # creates FloatTensor scaled to the range [0,1]
                                                       transforms.Normalize(
