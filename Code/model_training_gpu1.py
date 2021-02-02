@@ -143,12 +143,14 @@ if socket.gethostname() == 'Schlepptop':
     LEARNING_RATE = 0.01
     CLASS_SELECTION = "top_5_categories"
     SAMPLES_PER_CLASS = 10
+    N_EPOCHS = 10
 elif socket.gethostname() == 'ml3-gpu2':
     BATCH_SIZE_TRAIN = 64
     BATCH_SIZE_VALIDATE = 64
     LEARNING_RATE = 0.01
     CLASS_SELECTION = "top_5_categories"
     SAMPLES_PER_CLASS = 1000
+    N_EPOCHS = 50
 else:
     print("Error, error!")
 
@@ -236,7 +238,6 @@ optimizer_adam = torch.optim.Adam(model_resnet18_adapted.parameters(), betas = (
 
 cross_entropy_multi_class_loss = nn.BCEWithLogitsLoss()
 
-N_EPOCHS = 10
 print(f'Number of epochs: {N_EPOCHS}')
 
 results_dataframe = pd.DataFrame(
@@ -262,6 +263,7 @@ results_dataframe['transformations'] = results_dataframe['transformations'].fill
 
 start_datetime = datetime.now()
 experiment_identifier = f'{start_datetime.strftime("%d_%m_%Y_%H:%M:%S")}_SYS={socket.gethostname()}_BS={BATCH_SIZE_TRAIN}_LR={LEARNING_RATE}_EPOCHS={N_EPOCHS}_{CLASS_SELECTION}_SPC={SAMPLES_PER_CLASS}'
+# TODO adapt file name as necessary
 writer_tb = SummaryWriter(comment = experiment_identifier + "_transform_resize")
 
 for i in tqdm(range(N_EPOCHS)):
