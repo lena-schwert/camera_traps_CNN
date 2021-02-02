@@ -21,7 +21,7 @@ from tqdm import tqdm
 import copy
 import pandas as pd
 import numpy as np
-from custom_dataset_transformations import IslandConservationDataset
+from custom_dataset import IslandConservationDataset
 import warnings
 
 if socket.gethostname() == 'Schlepptop':
@@ -122,8 +122,8 @@ def validate(data_loader, model, criterion):
 # %% SPECIFY TRANSFORMATIONS
 
 # noinspection DuplicatedCode
-transformations_simple_ResNet18 = transforms.Compose([transforms.RandomCrop((1024, 1280)),
-                                                      # (height, width) resize all images to smallest common image size
+transformations_simple_ResNet18 = transforms.Compose([transforms.Resize((1000, int(1000 * 1.4))),
+                                                      # (height, width) resize all images to same size with median image ratio 1.4
                                                       transforms.ToTensor(),
                                                       # creates FloatTensor scaled to the range [0,1]
                                                       transforms.Normalize(
@@ -148,7 +148,7 @@ elif socket.gethostname() == 'ml3-gpu2':
     BATCH_SIZE_VALIDATE = 64
     LEARNING_RATE = 0.01
     CLASS_SELECTION = "top_5_categories"
-    SAMPLES_PER_CLASS = 100
+    SAMPLES_PER_CLASS = 1000
 else:
     print("Error, error!")
 
@@ -262,7 +262,7 @@ results_dataframe['transformations'] = results_dataframe['transformations'].fill
 
 start_datetime = datetime.now()
 experiment_identifier = f'{start_datetime.strftime("%d_%m_%Y_%H:%M:%S")}_SYS={socket.gethostname()}_BS={BATCH_SIZE_TRAIN}_LR={LEARNING_RATE}_EPOCHS={N_EPOCHS}_{CLASS_SELECTION}_SPC={SAMPLES_PER_CLASS}'
-writer_tb = SummaryWriter(comment = experiment_identifier)
+writer_tb = SummaryWriter(comment = experiment_identifier + "_transform_resize")
 
 for i in tqdm(range(N_EPOCHS)):
     start_time_epoch = time.perf_counter()
