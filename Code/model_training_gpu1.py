@@ -101,8 +101,8 @@ def validate(data_loader, model, criterion):
 
             # calculate classification accuracy
             prediction_prob = F.softmax(prediction_logit, dim = 1)
-            prediction_class_1D = torch.argmax(prediction_prob, dim = 1)
-            true_class_1D = torch.argmax(label_batch, dim = 1)
+            prediction_class_1D = torch.argmax(prediction_prob, dim = 1).cpu().numpy()
+            true_class_1D = torch.argmax(label_batch, dim = 1).cpu().numpy()
 
             # confusion_matrix_5classes = confusion_matrix(y_true = true_class_1D,
             #                                              y_pred = prediction_class_1D,
