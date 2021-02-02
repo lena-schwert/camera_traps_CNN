@@ -21,7 +21,7 @@ from tqdm import tqdm
 import copy
 import pandas as pd
 import numpy as np
-from custom_dataset_transformations import IslandConservationDataset
+from custom_dataset import IslandConservationDataset
 import warnings
 
 if socket.gethostname() == 'Schlepptop':
@@ -108,7 +108,7 @@ def validate(data_loader, model, criterion):
             #                                              y_pred = prediction_class_1D,
             #                                              normalize = "all").ravel()
 
-            #classific_report = classification_report(y_true = true_class_1D, y_pred = prediction_class_1D)
+            # classific_report = classification_report(y_true = true_class_1D, y_pred = prediction_class_1D)
 
             accuracy = accuracy_score(y_true = true_class_1D, y_pred = prediction_class_1D)
             mean_accuracy.append(accuracy)
@@ -122,7 +122,7 @@ def validate(data_loader, model, criterion):
 # %% SPECIFY TRANSFORMATIONS
 
 # noinspection DuplicatedCode
-transformations_simple_ResNet18 = transforms.Compose([transforms.Resize((1000, int(1000*1.4))),
+transformations_simple_ResNet18 = transforms.Compose([transforms.Resize((1000, int(1000 * 1.4))),
                                                       # (height, width) resize all images to same size with median image ratio 1.4
                                                       transforms.ToTensor(),
                                                       # creates FloatTensor scaled to the range [0,1]
@@ -159,6 +159,9 @@ if CLASS_SELECTION == "top_3_categories":
 elif CLASS_SELECTION == "top_5_categories":
     class_selection_ID_list = [('empty', 0), ('rat', 7), ('rabbit', 22), ('petrel', 21),
                                ('iguana', 3)]
+elif CLASS_SELECTION == "top_10_categories":
+    raise NotImplementedError(
+        "You still have to extrat the categories from the original dataframe images_metadata.")
 else:
     raise ValueError("Class selection not recognized. Specify a valid option")
 
@@ -260,6 +263,15 @@ results_dataframe['transformations'] = results_dataframe['transformations'].fill
 
 # %% TRAINING LOOP
 
+# in case you want to CONTINUE TRAINING BY LOADING A MODEL FILE
+# check the current device!
+# checkpoint = torch.load(None)   # enter a path to model file
+# model_resnet18_adapted.load_state_dict(checkpoint['model'], map_location = 'cuda:0')
+# optimizer_adam.load_state_dict(checkpoint['optimizer'])
+# last_epoch = checkpoint['epoch']
+# last_training_loss = checkpoint['training_loss']
+# model_resnet18_adapted.to(device)
+
 start_datetime = datetime.now()
 experiment_identifier = f'{start_datetime.strftime("%d_%m_%Y_%H:%M:%S")}_SYS={socket.gethostname()}_BS={BATCH_SIZE_TRAIN}_LR={LEARNING_RATE}_EPOCHS={N_EPOCHS}_{CLASS_SELECTION}_SPC={SAMPLES_PER_CLASS}'
 writer_tb = SummaryWriter(comment = experiment_identifier)
@@ -298,9 +310,8 @@ for i in tqdm(range(N_EPOCHS)):
         (end_time_epoch_validate - start_time_epoch_validate) / 60, 2)
 
     # add current metrics to tensorboard
-    writer_tb.add_scalars('loss',
-                          {'epoch_train_loss': epoch_train_loss,
-                           'epoch_validate_loss': epoch_validate_loss}, i)
+    writer_tb.add_scalars('loss', {'epoch_train_loss': epoch_train_loss,
+                                   'epoch_validate_loss': epoch_validate_loss}, i)
     writer_tb.add_scalar('epoch_mean_accuracy', epoch_mean_accuracy, i)
 
     # save the results dataframe to disk with current results
@@ -313,9 +324,14 @@ for i in tqdm(range(N_EPOCHS)):
         f'Epoch {i} of {N_EPOCHS} ran for {round((end_time_epoch - start_time_epoch_train) / 60, 2)} minutes.')
 
 writer_tb.close()
-# save the model (after transferring to CPU)
-file_name_model = f'{start_datetime.strftime("%d_%m_%Y_%H:%M:%S")}_SYS={socket.gethostname()}_BS={BATCH_SIZE_TRAIN}_LR={LEARNING_RATE}_N_EPOCHS={N_EPOCHS}_{CLASS_SELECTION}_SPC={SAMPLES_PER_CLASS}.pt'
-torch.save(model_resnet18_adapted, os.path.join(os.getcwd(), 'results', file_name_model))
+# save the model + optimizer such that training could be resumed (after transferring to CPU)
+# source: https://pytorch.org/tutorials/beginner/saving_loading_models#saving-loading-a-general-checkpoint-for-inference-and-or-resuming-training
+file_name_model = f'{start_datetime.strftime("%d_%m_%Y_%H:%M:%S")}_SYS={socket.gethostname()}_BS={BATCH_SIZE_TRAIN}_LR={LEARNING_RATE}_N_EPOCHS={N_EPOCHS}_{CLASS_SELECTION}_SPC={SAMPLES_PER_CLASS}.tar'
+torch.save({'epoch': i,
+            'model': model_resnet18_adapted.state_dict(),
+            'optimizer': optimizer_adam.state_dict(),
+            'training_loss': epoch_train_loss},
+    os.path.join(os.getcwd(), 'results', file_name_model))
 print('Final model saved to disk.')
 end_script = time.perf_counter()
 print(f'Total script ran for {round((end_script - start_script) / 60, 2)} minutes.')
