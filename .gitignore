@@ -3,4 +3,4 @@
 /image_data/
 /image_data_no_folder_structure/
 /Code/__pycache__
-
+*.pyc
