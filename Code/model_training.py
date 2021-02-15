@@ -67,6 +67,12 @@ def train_and_validate(smoke_test = True, image_directory = os.path.join(os.getc
                        # suggested default
                        adam_eps = 1e-08  # suggested default, for numerical stability
                        ):
+    """
+    Parameters
+    ----------
+    adam_eps : object
+    
+    """
     samples_per_class = 10 if smoke_test else samples_per_class
     n_epochs = 3 if smoke_test else n_epochs
 
@@ -388,8 +394,6 @@ def validate(data_loader, model, criterion, device):
     validate_loss = validate_loss / data_loader.__len__()
 
     return validate_loss, mean_accuracy
-
-#train_and_validate()
 
 if __name__ == '__main__':
     fire.Fire({'train+validate': train_and_validate})
