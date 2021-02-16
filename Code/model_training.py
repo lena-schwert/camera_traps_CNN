@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms, utils
 from torch.utils.data import random_split, DataLoader
 import torch.nn.functional as F
-from sklearn.metrics import confusion_matrix, accuracy_score, classification_report
+from sklearn.metrics import confusion_matrix, accuracy_score, classification_report, f1_score
 import fire
 import types
 
@@ -68,12 +68,12 @@ def train_and_validate(smoke_test = True, image_directory = os.path.join(os.getc
                        adam_eps = 1e-08  # suggested default, for numerical stability
                        ):
     """
+    # TODO specify all parameter types
     Parameters
     ----------
-    adam_eps : object
-    
+    smoke_test : object
     """
-    samples_per_class = 10 if smoke_test else samples_per_class
+    samples_per_class = 20 if smoke_test else samples_per_class
     n_epochs = 3 if smoke_test else n_epochs
 
     ############------------- SET UP LOGGING ---------------#################
@@ -89,6 +89,8 @@ def train_and_validate(smoke_test = True, image_directory = os.path.join(os.getc
         experiment_identifier = experiment_identifier + '_FINETUNING_LAST'
     if finetuning_all_layers:
         experiment_identifier = experiment_identifier + '_FINETUNING_ALL'
+    if smoke_test:
+        experiment_identifier = experiment_identifier + '_DEBUGGING'
     print(f'Saving results to folder: {experiment_identifier}')
     # create Tensorboard writer
     writer_tb = SummaryWriter(log_dir = "runs/" + experiment_identifier, flush_secs = 30)
@@ -140,7 +142,7 @@ def train_and_validate(smoke_test = True, image_directory = os.path.join(os.getc
     print('######### TRAINING LOOP ###########')
     for i in tqdm(range(my_args.n_epochs)):
         start_time_epoch = time.perf_counter()
-        print(f'Epoch {i+1} has started.')
+        print(f'Epoch {i + 1} has started.')
         results_dataframe.epoch_number[i] = i
         ############--------- DATA LOADERS ---------------#################
         train_data, validate_data = random_split(train_validation_data, [train_length, val_length])
@@ -185,21 +187,21 @@ def train_and_validate(smoke_test = True, image_directory = os.path.join(os.getc
                 writer_tb.add_histogram(f'{parameter_name}.grad', values.grad, i)
         metric_dict = {'loss/training_loss': epoch_train_loss,
                        'loss/validation_loss': epoch_validate_loss,
-                       'accuracy/mean_accuracy': epoch_mean_accuracy,
+                       'classification_metrics/mean_accuracy': epoch_mean_accuracy,
                        'timings/total_epoch_runtime_min': round(
                            (end_time_epoch - start_time_epoch) / 60, 2),
                        'timings/train_runtime_min': round(
                            (end_time_epoch_train - start_time_epoch_train) / 60, 2),
-                       'timings/validation_runtime_s': round(
-                           end_time_epoch_validate - start_time_epoch_validate, 2)}
+                       'timings/validation_runtime_min': round(
+                           (end_time_epoch_validate - start_time_epoch_validate) / 60, 2)}
 
         for key, value in metric_dict.items():
             writer_tb.add_scalar(key, value, i)
 
         writer_tb.flush()
-        print(f'Saved results of epoch {i+1} to disk.')
+        print(f'Saved results of epoch {i + 1} to disk.')
         print(
-            f'Epoch {i+1} of {my_args.n_epochs} ran for {round((end_time_epoch - start_time_epoch_train) / 60, 2)} minutes.')
+            f'Epoch {i + 1} of {my_args.n_epochs} ran for {round((end_time_epoch - start_time_epoch_train) / 60, 2)} minutes.')
 
     ############------------- AFTER COMPLETING ALL EPOCHS ---------------#################
     writer_tb.add_hparams(
@@ -332,7 +334,7 @@ def create_logging_dataframe(my_args):
 # %% TRAIN FUNCTION PER EPOCH
 
 def train(train_loader, model, optimizer, device, criterion):
-    print('Training...')
+    print('\nTraining...')
     epoch_loss = 0
     batch_time = []
     for batch_index, (image_batch, label_batch) in tqdm(enumerate(train_loader)):
@@ -366,8 +368,10 @@ def train(train_loader, model, optimizer, device, criterion):
 # %% VALIDATE FUNCTION
 
 def validate(data_loader, model, criterion, device):
-    print('Validating...')
+    print('\nValidating...')
     validate_loss = 0
+    predictions = []
+    true_labels = []
     mean_accuracy = []
     with torch.no_grad():
         for batch_index, (image_batch, label_batch) in tqdm(enumerate(data_loader)):
@@ -376,10 +380,14 @@ def validate(data_loader, model, criterion, device):
             batch_error = criterion(prediction_logit, label_batch)
             validate_loss += batch_error.data
 
-            # calculate classification accuracy
+            # calculate class predictions for the batch
             prediction_prob = F.softmax(prediction_logit, dim = 1)
             prediction_class_1D = torch.argmax(prediction_prob, dim = 1)
             true_class_1D = torch.argmax(label_batch, dim = 1)
+
+            # append class predictions and true labels to epoch-long list
+            predictions.append(prediction_class_1D)
+            true_labels.append(true_class_1D)
 
             # confusion_matrix_5classes = confusion_matrix(y_true = true_class_1D,
             #                                              y_pred = prediction_class_1D,
@@ -387,13 +395,27 @@ def validate(data_loader, model, criterion, device):
 
             # classific_report = classification_report(y_true = true_class_1D, y_pred = prediction_class_1D)
 
-            accuracy = accuracy_score(y_true = true_class_1D, y_pred = prediction_class_1D)
+
+            # top-1 accuracy
+            accuracy = accuracy_score(y_true = true_class_1D.cpu(), y_pred = prediction_class_1D.cpu())
             mean_accuracy.append(accuracy)
 
+            # top-5 accuracy
+            # precision
+            # recall
+            # f1 score  # false positive rate  # false negative rate  # confusion matrix
+    # if torch.cuda.is_available():
+    #     predictions = predictions.cpu()
+    #     true_labels = true_labels.cpu()
+
+    mean_accuracy_new = accuracy_score(y_true = true_labels.cpu(), y_pred = predictions.cpu())
     mean_accuracy = sum(mean_accuracy) / len(mean_accuracy)
     validate_loss = validate_loss / data_loader.__len__()
 
     return validate_loss, mean_accuracy
+
+
+train_and_validate()
 
 if __name__ == '__main__':
     fire.Fire({'train+validate': train_and_validate})
