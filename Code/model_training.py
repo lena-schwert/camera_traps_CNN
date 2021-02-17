@@ -7,7 +7,8 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms, utils
 from torch.utils.data import random_split, DataLoader
 import torch.nn.functional as F
-from sklearn.metrics import confusion_matrix, accuracy_score, classification_report, f1_score
+from sklearn.metrics import confusion_matrix, accuracy_score, classification_report, f1_score, \
+    precision_score
 import fire
 import types
 
@@ -21,6 +22,7 @@ import copy
 import pandas as pd
 import numpy as np
 from custom_dataset import IslandConservationDataset
+import pickle
 import json
 import warnings
 
@@ -63,7 +65,7 @@ def train_and_validate(smoke_test = True, image_directory = os.path.join(os.getc
                        validate_proportion = 0.2, test_proportion = 0.2, pretrained = True,
                        finetuning_all_layers = False, finetuning_last_layer = True, batch_size = 16,
                        learning_rate = 0.01, class_selection = "top_5_categories",
-                       samples_per_class = 100, n_epochs = 5, adam_betas = (0.9, 0.999),
+                       samples_per_class = 100, n_epochs = 10, adam_betas = (0.9, 0.999),
                        # suggested default
                        adam_eps = 1e-08  # suggested default, for numerical stability
                        ):
@@ -71,9 +73,24 @@ def train_and_validate(smoke_test = True, image_directory = os.path.join(os.getc
     # TODO specify all parameter types
     Parameters
     ----------
+    adam_betas:
+    adam_eps
+    batch_size
+    class_selection : str
+    image_directory
+    learning_rate
+    n_epochs
+    finetuning_all_layers
+    finetuning_last_layer
+    pretrained
+    samples_per_class
     smoke_test : object
+    test_proportion
+    train_proportion
+    transformations : str
+    validate_proportion
     """
-    samples_per_class = 20 if smoke_test else samples_per_class
+    samples_per_class = 35 if smoke_test else samples_per_class
     n_epochs = 3 if smoke_test else n_epochs
 
     ############------------- SET UP LOGGING ---------------#################
@@ -82,7 +99,8 @@ def train_and_validate(smoke_test = True, image_directory = os.path.join(os.getc
     print(my_args)
     # create directories and loggers
     start_datetime = datetime.now()
-    experiment_identifier = f'{start_datetime.strftime("%d_%m_%Y_%H:%M:%S")}_SYS={socket.gethostname()}_BS={batch_size}_LR={learning_rate}_EPOCHS={n_epochs}_{class_selection}_SPC={samples_per_class}'
+    global experiment_identifier
+    experiment_identifier = f'{start_datetime.strftime("%d_%m_%Y_%H:%M:%S")}_SYS={socket.gethostname()}_BS={batch_size}_LR={learning_rate}_EPOCHS={n_epochs}_{transformations}_{class_selection}_SPC={samples_per_class}'
     if pretrained:
         experiment_identifier = experiment_identifier + '_PRETRAINED'
     if finetuning_last_layer:
@@ -138,12 +156,15 @@ def train_and_validate(smoke_test = True, image_directory = os.path.join(os.getc
 
     ############------------- TRAINING ---------------#################
     start_datetime = datetime.now()
+    last_epoch = False
 
     print('######### TRAINING LOOP ###########')
     for i in tqdm(range(my_args.n_epochs)):
         start_time_epoch = time.perf_counter()
         print(f'Epoch {i + 1} has started.')
         results_dataframe.epoch_number[i] = i
+        if i + 1 == my_args.n_epochs:
+            last_epoch = True
         ############--------- DATA LOADERS ---------------#################
         train_data, validate_data = random_split(train_validation_data, [train_length, val_length])
         train_loader = DataLoader(train_data, batch_size = my_args.batch_size, num_workers = 0)
@@ -164,13 +185,15 @@ def train_and_validate(smoke_test = True, image_directory = os.path.join(os.getc
         # validate the trained model for loss + accuracy
         model_resnet18.eval()
         start_time_epoch_validate = time.perf_counter()
-        epoch_validate_loss, epoch_mean_accuracy = validate(data_loader = validate_loader,
-                                                            model = model_resnet18,
-                                                            criterion = cross_entropy_multi_class_loss,
-                                                            device = device)
+        epoch_validate_loss, classification_metrics = validate(data_loader = validate_loader,
+                                                               model = model_resnet18,
+                                                               criterion = cross_entropy_multi_class_loss,
+                                                               device = device,
+                                                               last_epoch = last_epoch)
         end_time_epoch_validate = time.perf_counter()
+        # TODO adapat logging with new metrics
         results_dataframe.validation_loss[i] = float(epoch_validate_loss.cpu())
-        results_dataframe.mean_accuracy[i] = epoch_mean_accuracy
+        results_dataframe.mean_accuracy[i] = classification_metrics.get('mean_accuracy')
         results_dataframe.validation_runtime_min[i] = round(
             (end_time_epoch_validate - start_time_epoch_validate) / 60, 2)
 
@@ -187,11 +210,10 @@ def train_and_validate(smoke_test = True, image_directory = os.path.join(os.getc
                 writer_tb.add_histogram(f'{parameter_name}.grad', values.grad, i)
         metric_dict = {'loss/training_loss': epoch_train_loss,
                        'loss/validation_loss': epoch_validate_loss,
-                       'classification_metrics/mean_accuracy': epoch_mean_accuracy,
-                       'timings/total_epoch_runtime_min': round(
-                           (end_time_epoch - start_time_epoch) / 60, 2),
-                       'timings/train_runtime_min': round(
-                           (end_time_epoch_train - start_time_epoch_train) / 60, 2),
+                       'classification_metrics/mean_accuracy': classification_metrics.get(
+                           'mean_accuracy'), 'timings/total_epoch_runtime_min': round(
+                (end_time_epoch - start_time_epoch) / 60, 2), 'timings/train_runtime_min': round(
+                (end_time_epoch_train - start_time_epoch_train) / 60, 2),
                        'timings/validation_runtime_min': round(
                            (end_time_epoch_validate - start_time_epoch_validate) / 60, 2)}
 
@@ -229,25 +251,33 @@ def train_and_validate(smoke_test = True, image_directory = os.path.join(os.getc
 
 def load_IslandConservation_subset(transformations, image_directory, class_selection_ID_list,
                                    samples_per_class, data_splits):
+    print('############ DATA USED ################')
     # load the dataframe containing all label information
     images_metadata = pd.read_pickle(
         os.path.join(os.getcwd(), 'Code/images_metadata_preprocessed.pkl'))
 
     # specify the transformations
     if transformations == 'transformations_simple_ResNet18':
-        transformations_simple_ResNet18 = transforms.Compose(
-            [transforms.Resize((1000, int(1000 * 1.4))),
-             # (height, width) resize all images to same size with median image ratio 1.4
-             transforms.ToTensor(),  # creates FloatTensor scaled to the range [0,1]
+        image_transformations = transforms.Compose([transforms.Resize((1000, int(1000 * 1.4))),
+                                                    # (height, width) resize all images to same size with median image ratio 1.4
+                                                    transforms.ToTensor(),
+                                                    # creates FloatTensor scaled to the range [0,1]
+                                                    transforms.Normalize(
+                                                        mean = [0.485, 0.456, 0.406],
+                                                        std = [0.229, 0.224, 0.225])])
+    elif transformations == 'transformations_like_literature':
+        image_transformations = transforms.Compose(
+            [transforms.Resize((256, 256)), transforms.ToTensor(),
+             # creates FloatTensor scaled to the range [0,1]
              transforms.Normalize(mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225])])
     else:
-        raise ValueError("Please specify a valid string to select image transformations.")
+        raise ValueError("Please specify a valid string to select the image transformations.")
 
     # load the dataset using the custom dataset class
     dataset_subset = IslandConservationDataset(img_base_dir = image_directory,
                                                images_metadata_dataframe = images_metadata,
                                                list_of_categories = class_selection_ID_list,
-                                               transformations = transformations_simple_ResNet18,
+                                               transformations = image_transformations,
                                                samples_per_class = samples_per_class)
 
     # do train, validation and test splits
@@ -262,7 +292,6 @@ def load_IslandConservation_subset(transformations, image_directory, class_selec
     train_validate_data, test_data = random_split(dataset_subset,
                                                   [train_length + val_length, test_length])
 
-    print('############ DATA USED ################')
     print(f'Categories used are {dataset_subset.class_encoding}')
     print(f'Training on {number_of_instances} samples.')
 
@@ -337,7 +366,7 @@ def train(train_loader, model, optimizer, device, criterion):
     print('\nTraining...')
     epoch_loss = 0
     batch_time = []
-    for batch_index, (image_batch, label_batch) in tqdm(enumerate(train_loader)):
+    for batch_index, (image_batch, label_batch) in enumerate(train_loader):
         start_batch = time.perf_counter()
         # transfer data to active device (not sure whether necessary)
         image_batch, label_batch = image_batch.to(device), label_batch.to(device)
@@ -367,14 +396,13 @@ def train(train_loader, model, optimizer, device, criterion):
 
 # %% VALIDATE FUNCTION
 
-def validate(data_loader, model, criterion, device):
+def validate(data_loader, model, criterion, device, last_epoch: bool):
     print('\nValidating...')
     validate_loss = 0
-    predictions = []
-    true_labels = []
-    mean_accuracy = []
+    predictions = torch.Tensor().long()
+    true_labels = torch.Tensor().long()
     with torch.no_grad():
-        for batch_index, (image_batch, label_batch) in tqdm(enumerate(data_loader)):
+        for batch_index, (image_batch, label_batch) in enumerate(data_loader):
             image_batch, label_batch = image_batch.to(device), label_batch.to(device)
             prediction_logit = model(image_batch)
             batch_error = criterion(prediction_logit, label_batch)
@@ -385,37 +413,59 @@ def validate(data_loader, model, criterion, device):
             prediction_class_1D = torch.argmax(prediction_prob, dim = 1)
             true_class_1D = torch.argmax(label_batch, dim = 1)
 
-            # append class predictions and true labels to epoch-long list
-            predictions.append(prediction_class_1D)
-            true_labels.append(true_class_1D)
+            # add class predictions and true labels to epoch-long tensor
+            predictions = torch.cat((predictions, prediction_class_1D))
+            true_labels = torch.cat((true_labels, true_class_1D))
 
-            # confusion_matrix_5classes = confusion_matrix(y_true = true_class_1D,
-            #                                              y_pred = prediction_class_1D,
-            #                                              normalize = "all").ravel()
+    ### calculate all metrics and the loss
+    if torch.cuda.is_available():
+        predictions = predictions.cpu()
+        true_labels = true_labels.cpu()
 
-            # classific_report = classification_report(y_true = true_class_1D, y_pred = prediction_class_1D)
+    classification_metrics = calculate_evaluation_metrics(labels = true_labels,
+                                                          predictions = predictions)
 
+    if last_epoch:
+        path = os.path.join(os.getcwd(), 'runs', experiment_identifier)
+        torch.save(predictions, os.path.join(path, 'predictions.pt'))
+        torch.save(true_labels, os.path.join(path, 'labels.pt'))
 
-            # top-1 accuracy
-            accuracy = accuracy_score(y_true = true_class_1D.cpu(), y_pred = prediction_class_1D.cpu())
-            mean_accuracy.append(accuracy)
-
-            # top-5 accuracy
-            # precision
-            # recall
-            # f1 score  # false positive rate  # false negative rate  # confusion matrix
-    # if torch.cuda.is_available():
-    #     predictions = predictions.cpu()
-    #     true_labels = true_labels.cpu()
-
-    mean_accuracy_new = accuracy_score(y_true = true_labels.cpu(), y_pred = predictions.cpu())
-    mean_accuracy = sum(mean_accuracy) / len(mean_accuracy)
+    # mean validation loss
     validate_loss = validate_loss / data_loader.__len__()
 
-    return validate_loss, mean_accuracy
+    return validate_loss, classification_metrics
 
 
-train_and_validate()
+def calculate_evaluation_metrics(labels, predictions):
+    """
+
+    Parameters
+    ----------
+    labels : torch.Tensor
+    predictions : torch.Tensor
+    """
+    if predictions.size() != labels.size():
+        raise ValueError("Labels and prediction tensors must be of same length!")
+
+    # top-1 accuracy
+    mean_accuracy = accuracy_score(y_true = labels, y_pred = predictions)
+
+    classific_report = classification_report(y_true = labels, y_pred = predictions)
+    # top-5 accuracy
+    # precision, recall, f1 score, support
+
+    precision = precision_score(y_true = labels, y_pred = predictions, average = 'micro')
+    # recall
+    # f1 score
+    # false positive rate
+    # false negative rate
+    # confusion matrix
+    confuse_matrix = confusion_matrix(y_true = labels, y_pred = predictions, normalize = "all")
+
+    return {'mean_accuracy': mean_accuracy}
+
+# train_and_validate()
+# DEBUGGING = True
 
 if __name__ == '__main__':
     fire.Fire({'train+validate': train_and_validate})
