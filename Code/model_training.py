@@ -400,8 +400,8 @@ def train(train_loader, model, optimizer, device, criterion, my_args):
 def validate(data_loader, model, criterion, device, last_epoch: bool):
     print('\nValidating...')
     validate_loss = 0
-    predictions = torch.Tensor().long()
-    true_labels = torch.Tensor().long()
+    predictions = torch.Tensor().long().to(device)
+    true_labels = torch.Tensor().long().to(device)
     with torch.no_grad():
         for batch_index, (image_batch, label_batch) in enumerate(data_loader):
             image_batch, label_batch = image_batch.to(device), label_batch.to(device)
