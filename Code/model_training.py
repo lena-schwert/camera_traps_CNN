@@ -60,7 +60,7 @@ warnings.filterwarnings("ignore")
 # last_training_loss = checkpoint['training_loss']
 # model_resnet18_adapted.to(device)
 
-def train_and_validate(smoke_test = True, image_directory = os.path.join(os.getcwd(), 'image_data'),
+def train_and_validate(debugging = False, smoke_test = True, image_directory = os.path.join(os.getcwd(), 'image_data'),
                        transformations = 'transformations_simple_ResNet18', train_proportion = 0.6,
                        validate_proportion = 0.2, test_proportion = 0.2, pretrained = True,
                        finetuning_all_layers = False, finetuning_last_layer = True, batch_size = 16,
@@ -107,7 +107,7 @@ def train_and_validate(smoke_test = True, image_directory = os.path.join(os.getc
         experiment_identifier = experiment_identifier + '_FINETUNING_LAST'
     if finetuning_all_layers:
         experiment_identifier = experiment_identifier + '_FINETUNING_ALL'
-    if smoke_test:
+    if smoke_test or debugging:
         experiment_identifier = experiment_identifier + '_DEBUGGING'
     print(f'Saving results to folder: {experiment_identifier}')
     # create Tensorboard writer
@@ -175,7 +175,7 @@ def train_and_validate(smoke_test = True, image_directory = os.path.join(os.getc
         start_time_epoch_train = time.perf_counter()
         epoch_train_loss = train(train_loader = train_loader, model = model_resnet18,
                                  device = device, criterion = cross_entropy_multi_class_loss,
-                                 optimizer = optimizer_adam)
+                                 optimizer = optimizer_adam, my_args = my_args)
         end_time_epoch_train = time.perf_counter()
         results_dataframe.epoch_number[i] = i
         results_dataframe.train_runtime_min[i] = round(
@@ -362,7 +362,7 @@ def create_logging_dataframe(my_args):
 
 # %% TRAIN FUNCTION PER EPOCH
 
-def train(train_loader, model, optimizer, device, criterion):
+def train(train_loader, model, optimizer, device, criterion, my_args):
     print('\nTraining...')
     epoch_loss = 0
     batch_time = []
@@ -385,8 +385,9 @@ def train(train_loader, model, optimizer, device, criterion):
         # batch_error = batch_error.detach()
         # print(f'Cumulative loss at batch {batch_index} in current epoch: {epoch_loss}')
         end_batch = time.perf_counter()
-        # print(f'Error of current batch is: {batch_error}')
-        # print(f'Runtime of batch {batch_index} is {round(end_batch - start_batch, 2)}')
+        if my_args.debugging:
+            print(f'Error of current batch is: {batch_error}')
+            print(f'Runtime of batch {batch_index} is {round(end_batch - start_batch, 2)}')
         batch_time.append(end_batch - start_batch)
 
     epoch_loss = epoch_loss / train_loader.__len__()
