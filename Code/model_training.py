@@ -248,18 +248,18 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
                            'top1_accuracy'),
                        'classification_metrics/top5_accuracy': classification_metrics.get(
                            'top5_accuracy'),
-                       'classification_metrics/precision': classification_metrics.get(
-                           'precision'),
-                       'classification_metrics/recall': classification_metrics.get('recall'),
-                       'classification_metrics/f1_score': classification_metrics.get('f1_score'),
-                       'classification_metrics/support': classification_metrics.get('support'),
-                       'classification_metrics/false_negative_rate': classification_metrics.get('false_negative_rate'),
-                       'classification_metrics/false_positive_rate': classification_metrics.get( 'false_positive_rate'),
+                       'classification_metrics/precision_macro_average': np.mean(classification_metrics.get(
+                           'precision')),
+                       'classification_metrics/recall_macro_average': np.mean(classification_metrics.get('recall')),
+                       'classification_metrics/f1_score_macro_average': np.mean(classification_metrics.get('f1_score')),
+                       'classification_metrics/false_negative_rate_macro_average': np.mean(classification_metrics.get('false_negative_rate')),
+                       'classification_metrics/false_positive_rate_macro_average': np.mean(classification_metrics.get( 'false_positive_rate')),
                        'timings/total_epoch_runtime_min': round((end_time_epoch - start_time_epoch) / 60, 2),
                        'timings/train_runtime_min': round((end_time_epoch_train - start_time_epoch_train) / 60, 2),
                        'timings/validation_runtime_min': round((end_time_epoch_validate - start_time_epoch_validate) / 60, 2)}
 
         for key, value in metric_dict.items():
+            print(key)
             writer_tb.add_scalar(key, value, i)
 
         writer_tb.flush()
@@ -550,12 +550,14 @@ def calculate_evaluation_metrics(labels, predictions, prediction_probs):
             'false_negative_rate': FNR,
             'false_positive_rate': FPR}
 
+def test():
+    pass
 
 DEBUGGING = True
 
 if __name__ == '__main__':
     if DEBUGGING:
-        train_and_validate(class_selection = "3_small_categories", samples_per_class = 'all', smoke_test = False)
+        train_and_validate(class_selection = "3_small_categories", samples_per_class = 20, smoke_test = False)
     else:
         fire.Fire({'train+validate': train_and_validate,
                    'test': validate})
