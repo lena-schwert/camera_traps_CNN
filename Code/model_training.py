@@ -182,10 +182,6 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
                                  device = device, criterion = cross_entropy_multi_class_loss,
                                  optimizer = optimizer_adam, my_args = my_args)
         end_time_epoch_train = time.perf_counter()
-        results_dataframe.epoch_number[i] = i
-        results_dataframe.train_runtime_min[i] = round(
-            (end_time_epoch_train - start_time_epoch_train) / 60, 2)
-        results_dataframe.training_loss[i] = float(epoch_train_loss.cpu())
         ############------------- VALIDATION ---------------#################
         # validate the trained model for loss + accuracy
         model_resnet18.eval()
@@ -196,13 +192,27 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
                                                                device = device,
                                                                last_epoch = last_epoch)
         end_time_epoch_validate = time.perf_counter()
-        # TODO adapat logging with new metrics
+        end_time_epoch = time.perf_counter()
+        ############------------- LOGGING ---------------#################
+        # TODO make this more efficient, e.g. reuse the metric_dict below
+        # solution: https://stackoverflow.com/questions/42632470/how-to-add-dictionaries-to-a-dataframe-as-a-row
+        results_dataframe.epoch_number[i] = i
+        results_dataframe.training_loss[i] = float(epoch_train_loss.cpu())
         results_dataframe.validation_loss[i] = float(epoch_validate_loss.cpu())
-        results_dataframe.mean_accuracy[i] = classification_metrics.get('mean_accuracy')
+        results_dataframe.train_runtime_min[i] = round(
+            (end_time_epoch_train - start_time_epoch_train) / 60, 2)
         results_dataframe.validation_runtime_min[i] = round(
             (end_time_epoch_validate - start_time_epoch_validate) / 60, 2)
-
-        end_time_epoch = time.perf_counter()
+        results_dataframe.total_epoch_runtime_min[i] = round(
+                (end_time_epoch - start_time_epoch) / 60, 2)
+        results_dataframe.top1_accuracy[i] = classification_metrics.get('top1_accuracy')
+        results_dataframe.top5_accuracy[i] = classification_metrics.get('top5_accuracy')
+        results_dataframe.precision[i] = classification_metrics.get('precision')
+        results_dataframe.recall[i] = classification_metrics.get('recall')
+        results_dataframe.f1_score[i] = classification_metrics.get('f1_score')
+        results_dataframe.support[i] = classification_metrics.get('support')
+        results_dataframe.false_negative_rate[i] = classification_metrics.get('false_negative_rate')
+        results_dataframe.false_positive_rate[i] = classification_metrics.get('false_positive_rate')
 
         # save the results dataframe to disk with current results
         file_name = os.path.join(experiment_identifier, 'results.csv')
@@ -216,7 +226,18 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
         metric_dict = {'loss/training_loss': epoch_train_loss,
                        'loss/validation_loss': epoch_validate_loss,
                        'classification_metrics/top1_accuracy': classification_metrics.get(
-                           'top1_accuracy'), 'timings/total_epoch_runtime_min': round(
+                           'top1_accuracy'),
+                       'classification_metrics/top5_accuracy': classification_metrics.get(
+                           'top5_accuracy'),
+                       'classification_metrics/precision': classification_metrics.get(
+                           'precision'),
+                       'classification_metrics/recall': classification_metrics.get('recall'),
+                       'classification_metrics/f1_score': classification_metrics.get('f1_score'),
+                       'classification_metrics/support': classification_metrics.get('support'),
+                       'classification_metrics/false_negative_rate': classification_metrics.get('false_negative_rate'),
+                       'classification_metrics/false_positive_rate': classification_metrics.get(
+                           'false_positive_rate'),
+                       'timings/total_epoch_runtime_min': round(
                 (end_time_epoch - start_time_epoch) / 60, 2), 'timings/train_runtime_min': round(
                 (end_time_epoch_train - start_time_epoch_train) / 60, 2),
                        'timings/validation_runtime_min': round(
@@ -340,10 +361,11 @@ def load_and_adapt_model(my_args, class_selection_ID_list):
 
 def create_logging_dataframe(my_args):
     results_dataframe = pd.DataFrame(
-        columns = ['epoch_number', 'train_runtime_min', 'training_loss', 'validation_loss',
-                   'mean_accuracy', 'validation_runtime_min', 'batch_size', 'learning_rate',
-                   'pretrained', 'finetuning_all_layers', 'finetuning_last_layer',
-                   'class_selection', 'samples_per_class', 'transformations'],
+        columns = ['epoch_number',  'training_loss', 'validation_loss', 'train_runtime_min',
+                   'validation_runtime_min', 'total_epoch_runtime_min', 'top1_accuracy', 'top5_accuracy', 'precision', 'recall',
+                   'f1_score', 'support', 'false_negative_rate', 'false_positive_rate',
+                   'batch_size', 'learning_rate', 'pretrained', 'finetuning_all_layers',
+                   'finetuning_last_layer',  'class_selection', 'samples_per_class', 'transformations'],
         index = np.arange(my_args.n_epochs))
     results_dataframe['batch_size'] = results_dataframe['batch_size'].fillna(
         value = my_args.batch_size)
@@ -392,7 +414,7 @@ def train(train_loader, model, optimizer, device, criterion, my_args):
         end_batch = time.perf_counter()
         if my_args.debugging:
             print(f'Error of current batch is: {batch_error}')
-            print(f'Runtime of batch {batch_index}/{train_loader.__len__()} is {round(end_batch - start_batch, 2)}')
+            print(f'Runtime of batch {batch_index+1}/{train_loader.__len__()} is {round(end_batch - start_batch, 2)} seconds.')
         batch_time.append(end_batch - start_batch)
 
     epoch_loss = epoch_loss / train_loader.__len__()
@@ -513,7 +535,7 @@ def calculate_evaluation_metrics(labels, predictions, prediction_probs):
             'false_positive_rate': FPR}
 
 
-DEBUGGING = False
+DEBUGGING = True
 
 if __name__ == '__main__':
     if DEBUGGING:
