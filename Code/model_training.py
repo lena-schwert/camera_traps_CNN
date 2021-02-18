@@ -7,8 +7,8 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms, utils
 from torch.utils.data import random_split, DataLoader
 import torch.nn.functional as F
-from sklearn.metrics import confusion_matrix, accuracy_score, classification_report, f1_score, \
-    precision_score
+from sklearn.metrics import confusion_matrix, accuracy_score, classification_report, \
+    precision_recall_fscore_support, top_k_accuracy_score, plot_confusion_matrix
 import fire
 import types
 
@@ -25,6 +25,9 @@ from custom_dataset import IslandConservationDataset
 import pickle
 import json
 import warnings
+
+# visualization stuff
+import matplotlib.pyplot as plt
 
 if socket.gethostname() == 'Schlepptop':
     os.chdir('/home/lena/git/research_project/')
@@ -90,7 +93,7 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
     transformations : str
     validate_proportion
     """
-    samples_per_class = 35 if smoke_test else samples_per_class
+    samples_per_class = 32 if smoke_test else samples_per_class
     n_epochs = 3 if smoke_test else n_epochs
 
     ############------------- SET UP LOGGING ---------------#################
@@ -210,8 +213,8 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
                 writer_tb.add_histogram(f'{parameter_name}.grad', values.grad, i)
         metric_dict = {'loss/training_loss': epoch_train_loss,
                        'loss/validation_loss': epoch_validate_loss,
-                       'classification_metrics/mean_accuracy': classification_metrics.get(
-                           'mean_accuracy'), 'timings/total_epoch_runtime_min': round(
+                       'classification_metrics/top1_accuracy': classification_metrics.get(
+                           'top1_accuracy'), 'timings/total_epoch_runtime_min': round(
                 (end_time_epoch - start_time_epoch) / 60, 2), 'timings/train_runtime_min': round(
                 (end_time_epoch_train - start_time_epoch_train) / 60, 2),
                        'timings/validation_runtime_min': round(
@@ -387,7 +390,7 @@ def train(train_loader, model, optimizer, device, criterion, my_args):
         end_batch = time.perf_counter()
         if my_args.debugging:
             print(f'Error of current batch is: {batch_error}')
-            print(f'Runtime of batch {batch_index} is {round(end_batch - start_batch, 2)}')
+            print(f'Runtime of batch {batch_index}/{train_loader.__len__()} is {round(end_batch - start_batch, 2)}')
         batch_time.append(end_batch - start_batch)
 
     epoch_loss = epoch_loss / train_loader.__len__()
@@ -401,6 +404,7 @@ def validate(data_loader, model, criterion, device, last_epoch: bool):
     print('\nValidating...')
     validate_loss = 0
     predictions = torch.Tensor().long().to(device)
+    prediction_probabilities = torch.Tensor().long().to(device)
     true_labels = torch.Tensor().long().to(device)
     with torch.no_grad():
         for batch_index, (image_batch, label_batch) in enumerate(data_loader):
@@ -417,19 +421,23 @@ def validate(data_loader, model, criterion, device, last_epoch: bool):
             # add class predictions and true labels to epoch-long tensor
             predictions = torch.cat((predictions, prediction_class_1D))
             true_labels = torch.cat((true_labels, true_class_1D))
+            prediction_probabilities = torch.cat((prediction_probabilities, prediction_prob), dim = 0)
 
-    ### calculate all metrics and the loss
+    ### calculate all metrics and the loss using scikit-learn
     if torch.cuda.is_available():
         predictions = predictions.cpu()
         true_labels = true_labels.cpu()
+        prediction_probabilities = prediction_probabilities.cpu()
 
     classification_metrics = calculate_evaluation_metrics(labels = true_labels,
-                                                          predictions = predictions)
+                                                          predictions = predictions,
+                                                          prediction_probs = prediction_probabilities)
 
     if last_epoch:
         path = os.path.join(os.getcwd(), 'runs', experiment_identifier)
         torch.save(predictions, os.path.join(path, 'predictions.pt'))
         torch.save(true_labels, os.path.join(path, 'labels.pt'))
+        torch.save(prediction_probabilities, os.path.join(path, 'prediction_probabilities.pt'))
 
     # mean validation loss
     validate_loss = validate_loss / data_loader.__len__()
@@ -437,35 +445,57 @@ def validate(data_loader, model, criterion, device, last_epoch: bool):
     return validate_loss, classification_metrics
 
 
-def calculate_evaluation_metrics(labels, predictions):
+def calculate_evaluation_metrics(labels, predictions, prediction_probs):
     """
 
     Parameters
     ----------
     labels : torch.Tensor
     predictions : torch.Tensor
+    prediction_probs : torch.Tensor
     """
     if predictions.size() != labels.size():
         raise ValueError("Labels and prediction tensors must be of same length!")
 
     # top-1 accuracy
-    mean_accuracy = accuracy_score(y_true = labels, y_pred = predictions)
-
-    classific_report = classification_report(y_true = labels, y_pred = predictions)
+    top1_accuracy = accuracy_score(y_true = labels, y_pred = predictions)
     # top-5 accuracy
-    # precision, recall, f1 score, support
-
-    precision = precision_score(y_true = labels, y_pred = predictions, average = 'micro')
-    # recall
-    # f1 score
-    # false positive rate
-    # false negative rate
+    top5_accuracy = top_k_accuracy_score(y_true = labels, y_score = prediction_probs, k = 5, normalize = True)
+    # precision, recall, f1 score and support per class
+    precision, recall, f1_score, support = precision_recall_fscore_support(y_true = labels, y_pred = predictions, average = None, beta = 1)
     # confusion matrix
-    confuse_matrix = confusion_matrix(y_true = labels, y_pred = predictions, normalize = "all")
+    confuse_matrix = confusion_matrix(y_true = labels, y_pred = predictions)
 
-    return {'mean_accuracy': mean_accuracy}
+    # calculations from: https://stackoverflow.com/questions/50666091/true-positive-rate-and-false-positive-rate-tpr-fpr-for-multi-class-data-in-py
+    FP = confuse_matrix.sum(axis = 0) - np.diag(confuse_matrix)
+    FN = confuse_matrix.sum(axis = 1) - np.diag(confuse_matrix)
+    # true positives = diagonal of the confusion matrix (as many elements as classes)
+    TP = np.diag(confuse_matrix)
+    # true negatives = all samples that are left over
+    TN = confuse_matrix.sum() - (FP + FN + TP)
 
-# train_and_validate()
+    FP = FP.astype(float)
+    FN = FN.astype(float)
+    TP = TP.astype(float)
+    TN = TN.astype(float)
+    # false negative rate (fraction of false negatives of all truly positive examples)
+    FNR = FN / (FN + TP)
+    # false positive rate/fall-out (fraction of false positives of all truly negative examples)
+    FPR = FP / (FP + TN)
+
+
+
+    return {'top1_accuracy': top1_accuracy,
+            'top5_accuracy': top5_accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1_score': f1_score,
+            'support': support,
+            'confusion_matrix': confuse_matrix,
+            'false_negative_rate': FNR,
+            'false_positive_rate': FPR}
+
+train_and_validate()
 # DEBUGGING = True
 
 if __name__ == '__main__':
