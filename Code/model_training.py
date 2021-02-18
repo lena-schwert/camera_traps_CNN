@@ -76,6 +76,7 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
     # TODO specify all parameter types
     Parameters
     ----------
+    debugging
     adam_betas:
     adam_eps
     batch_size
@@ -86,7 +87,7 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
     finetuning_all_layers
     finetuning_last_layer
     pretrained
-    samples_per_class
+    samples_per_class: specify 'all' or an integer
     smoke_test : object
     test_proportion
     train_proportion
@@ -125,20 +126,38 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
 
     # create dataframe for collecting results per epoch
     results_dataframe = create_logging_dataframe(my_args)
+    # look at Lenas_sorted_class_count.csv for extracting the top_k_categories with encoding
+    if class_selection == "top_3_categories":
+        class_selection_ID_list = [('empty', 0), ('rabbit', 22), ('petrel', 21)]
+    elif class_selection == "top_5_categories":
+        class_selection_ID_list = [('empty', 0), ('rabbit', 22), ('petrel', 21), ('iguana', 3),
+                                   ('rat', 7)]
+    elif class_selection == "top_10_categories":
+        class_selection_ID_list = [('empty', 0), ('rabbit', 22), ('petrel', 21), ('iguana', 3),
+                                   ('rat', 7), ('cat', 5), ('pig', 37), ('goat', 36),
+                                   ('shearwater', 26), ('petrel_chick', 23)]
+    elif class_selection == "3_small_categories":
+        class_selection_ID_list = [('raven', 4), ('donkey', 2), ('monitor_lizard', 46)]
+    elif class_selection == "all_49_classes":
+        import csv
+        with open('category_encoding_all_classes.csv', mode = 'r') as infile:
+            reader = csv.reader(infile)
+            with open('test.csv', mode = 'w') as outfile:
+                writer = csv.writer(outfile)
+                all_category_encodings = {rows[0]: rows[1] for rows in reader}
+                # drop all classes that have zero images (identified by trial and error)
+                all_category_encodings.pop('name', None)
+                all_category_encodings.pop('human', None)
+                all_category_encodings.pop('unknown', None)
+                all_category_encodings.pop('dove', None)
+                all_category_encodings.pop('moth', None)
+        class_selection_ID_list = [(k, int(v)) for k, v in all_category_encodings.items()]
+    else:
+        raise ValueError("Class selection not recognized. Specify a valid option")
 
     #############------------- PREPARE FOR TRAINING ---------------#################
 
     # specify the class selection
-    if class_selection == "top_3_categories":
-        class_selection_ID_list = [('empty', 0), ('rat', 7), ('rabbit', 22)]
-    elif class_selection == "top_5_categories":
-        class_selection_ID_list = [('empty', 0), ('rat', 7), ('rabbit', 22), ('petrel', 21),
-                                   ('iguana', 3)]
-    elif class_selection == "top_10_categories":
-        raise NotImplementedError(
-            "You still have to extract the categories from the original dataframe images_metadata.")
-    else:
-        raise ValueError("Class selection not recognized. Specify a valid option")
 
     # load the resnet model
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -235,13 +254,10 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
                        'classification_metrics/f1_score': classification_metrics.get('f1_score'),
                        'classification_metrics/support': classification_metrics.get('support'),
                        'classification_metrics/false_negative_rate': classification_metrics.get('false_negative_rate'),
-                       'classification_metrics/false_positive_rate': classification_metrics.get(
-                           'false_positive_rate'),
-                       'timings/total_epoch_runtime_min': round(
-                (end_time_epoch - start_time_epoch) / 60, 2), 'timings/train_runtime_min': round(
-                (end_time_epoch_train - start_time_epoch_train) / 60, 2),
-                       'timings/validation_runtime_min': round(
-                           (end_time_epoch_validate - start_time_epoch_validate) / 60, 2)}
+                       'classification_metrics/false_positive_rate': classification_metrics.get( 'false_positive_rate'),
+                       'timings/total_epoch_runtime_min': round((end_time_epoch - start_time_epoch) / 60, 2),
+                       'timings/train_runtime_min': round((end_time_epoch_train - start_time_epoch_train) / 60, 2),
+                       'timings/validation_runtime_min': round((end_time_epoch_validate - start_time_epoch_validate) / 60, 2)}
 
         for key, value in metric_dict.items():
             writer_tb.add_scalar(key, value, i)
@@ -539,7 +555,7 @@ DEBUGGING = True
 
 if __name__ == '__main__':
     if DEBUGGING:
-        train_and_validate()
+        train_and_validate(class_selection = "3_small_categories", samples_per_class = 'all', smoke_test = False)
     else:
         fire.Fire({'train+validate': train_and_validate,
                    'test': validate})

@@ -73,12 +73,16 @@ class IslandConservationDataset(Dataset):
 
         # collect list of row indices of type pandas.Index
 
+        i = 0
         first_iter = True
         for value in self.class_ID_selection:
-            indices_class = images_metadata_dataframe[
-                images_metadata_dataframe['category_id'] == value].index
+            indices_class = images_metadata_dataframe[images_metadata_dataframe['category_id'] == value].index
+            #print(indices_class.__len__())
+            #print(f'Class {self.class_encoding[i][1]} has {indices_class.__len__()} images.')
+            self.class_encoding[i] = self.class_encoding[i]+(indices_class.__len__(),)
+            i += 1
             # uniformly sample a given amount of samples per class from the indices
-            if samples_per_class is not None:
+            if samples_per_class is not 'all':
                 indices_class = pd.Int64Index(np.random.choice(indices_class.values,
                                                                size = samples_per_class, replace = False))
             if first_iter:
@@ -86,6 +90,15 @@ class IslandConservationDataset(Dataset):
                 first_iter = False
             else:
                 class_selection_indices = class_selection_indices.union(indices_class, sort = None)
+
+            ### code used once for storing the ordered class count
+            # class_count_sorted = sorted(self.class_encoding, key = lambda tup: tup[3], reverse = True)
+            # # save list of tuples to CSV
+            # import csv
+            # with open('Lenas_sorted_class_count.csv', 'w') as out:
+            #     csv_out = csv.writer(out)
+            #     csv_out.writerow(['my_encoded_value', 'species_name', 'original_encoding', 'image count'])
+            #     csv_out.writerows(class_count_sorted)
 
         self.images_metadata_dataframe_subset = images_metadata_dataframe.loc[
             class_selection_indices]

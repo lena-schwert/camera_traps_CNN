@@ -70,6 +70,9 @@ info = object_to_string_dtype(info)
 images = images.assign(
     width_x_height = lambda x: (x['width'].map(str) + "x" + x['height'].map(str)))
 
+# save category encoding to disk
+categories.to_csv(path_or_buf = os.path.join(os.getcwd(), 'category_encoding_all_classes.csv'), index = False)
+
 
 # %% The Dataset class
 
