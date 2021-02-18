@@ -93,6 +93,8 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
     transformations : str
     validate_proportion
     """
+    if DEBUGGING:
+        debugging = True
     samples_per_class = 32 if smoke_test else samples_per_class
     n_epochs = 3 if smoke_test else n_epochs
 
@@ -433,11 +435,19 @@ def validate(data_loader, model, criterion, device, last_epoch: bool):
                                                           predictions = predictions,
                                                           prediction_probs = prediction_probabilities)
 
+    # save all objects to disk for easy access after training
     if last_epoch:
         path = os.path.join(os.getcwd(), 'runs', experiment_identifier)
         torch.save(predictions, os.path.join(path, 'predictions.pt'))
         torch.save(true_labels, os.path.join(path, 'labels.pt'))
         torch.save(prediction_probabilities, os.path.join(path, 'prediction_probabilities.pt'))
+        with open(os.path.join(path, 'confusion_matrix.pickle'), 'wb') as file:
+            pickle.dump(classification_metrics.get('confusion_matrix'), file, pickle.HIGHEST_PROTOCOL)
+
+    # with open(os.path.join(path, 'confusion_matrix.pickle'), 'rb') as f:
+    #     # The protocol version used is detected automatically, so we do not
+    #     # have to specify it.
+    #     data = pickle.load(f)
 
     # mean validation loss
     validate_loss = validate_loss / data_loader.__len__()
@@ -467,11 +477,20 @@ def calculate_evaluation_metrics(labels, predictions, prediction_probs):
     confuse_matrix = confusion_matrix(y_true = labels, y_pred = predictions)
 
     # calculations from: https://stackoverflow.com/questions/50666091/true-positive-rate-and-false-positive-rate-tpr-fpr-for-multi-class-data-in-py
-    FP = confuse_matrix.sum(axis = 0) - np.diag(confuse_matrix)
-    FN = confuse_matrix.sum(axis = 1) - np.diag(confuse_matrix)
     # true positives = diagonal of the confusion matrix (as many elements as classes)
     TP = np.diag(confuse_matrix)
+    # predictions per class = confuse_matrix.sum(axis = 0)
+    # samples per class (true labels) = confuse_matrix.sum(axis = 1)
+
+    # false positives = samples predicted wrongly predicted as class X
+    # --> subtract true positives from samples per class predicted as that class
+    FP = confuse_matrix.sum(axis = 0) - TP
+    # false negatives = the number of samples that truly belong to a specific class, but were not classifies as that class
+    # --> subtract the true positives from the number of true samples (= support) per class
+    FN = confuse_matrix.sum(axis = 1) - TP
     # true negatives = all samples that are left over
+    # all elements of the -ith position in the four vectors will sum up to the number of samples
+    # e.g. TP[4]+FP[4]+FN[4]+TN[4] = number_of_samples
     TN = confuse_matrix.sum() - (FP + FN + TP)
 
     FP = FP.astype(float)
@@ -483,8 +502,6 @@ def calculate_evaluation_metrics(labels, predictions, prediction_probs):
     # false positive rate/fall-out (fraction of false positives of all truly negative examples)
     FPR = FP / (FP + TN)
 
-
-
     return {'top1_accuracy': top1_accuracy,
             'top5_accuracy': top5_accuracy,
             'precision': precision,
@@ -495,8 +512,12 @@ def calculate_evaluation_metrics(labels, predictions, prediction_probs):
             'false_negative_rate': FNR,
             'false_positive_rate': FPR}
 
-train_and_validate()
-# DEBUGGING = True
+
+DEBUGGING = False
 
 if __name__ == '__main__':
-    fire.Fire({'train+validate': train_and_validate})
+    if DEBUGGING:
+        train_and_validate()
+    else:
+        fire.Fire({'train+validate': train_and_validate,
+                   'test': validate})
