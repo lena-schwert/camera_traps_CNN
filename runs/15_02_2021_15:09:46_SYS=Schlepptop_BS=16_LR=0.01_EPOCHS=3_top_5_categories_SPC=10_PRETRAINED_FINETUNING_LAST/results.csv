@@ -1,4 +1,0 @@
-epoch_number,train_runtime_min,training_loss,validation_loss,mean_accuracy,validation_runtime_min,batch_size,learning_rate,pretrained,finetuning_all_layers,finetuning_last_layer,class_selection,samples_per_class,transformations
-0,0.4,0.8051434755325317,0.7270896434783936,0.0,122.74,16,0.01,True,False,True,top_5_categories,10,transformations_simple_ResNet18
-,,,,,,16,0.01,True,False,True,top_5_categories,10,transformations_simple_ResNet18
-,,,,,,16,0.01,True,False,True,top_5_categories,10,transformations_simple_ResNet18
