@@ -1,0 +1,4 @@
+epoch_number,train_runtime_min,training_loss,validation_loss,mean_accuracy,validation_runtime_min,batch_size,learning_rate,pretrained,finetuning_all_layers,finetuning_last_layer,class_selection,samples_per_class,transformations
+0,0.15,0.6879883408546448,0.5316377282142639,0.2857142857142857,0.06,16,0.01,True,False,True,top_5_categories,35,transformations_like_literature
+1,0.17,0.4432201683521271,0.4470682442188263,0.4857142857142857,0.06,16,0.01,True,False,True,top_5_categories,35,transformations_like_literature
+2,0.15,0.3297027051448822,0.18591630458831787,0.8571428571428571,0.05,16,0.01,True,False,True,top_5_categories,35,transformations_like_literature

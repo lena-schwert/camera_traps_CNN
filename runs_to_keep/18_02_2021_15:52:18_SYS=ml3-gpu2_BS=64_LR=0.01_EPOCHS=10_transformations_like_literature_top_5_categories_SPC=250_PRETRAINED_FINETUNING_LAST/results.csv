@@ -1,0 +1,11 @@
+epoch_number,train_runtime_min,training_loss,validation_loss,mean_accuracy,validation_runtime_min,batch_size,learning_rate,pretrained,finetuning_all_layers,finetuning_last_layer,class_selection,samples_per_class,transformations
+0,0.84,0.5024020671844482,0.31425556540489197,,0.29,64,0.01,True,False,True,top_5_categories,250,transformations_like_literature
+1,0.72,0.2353048026561737,0.20502401888370514,,0.25,64,0.01,True,False,True,top_5_categories,250,transformations_like_literature
+2,0.73,0.17140355706214905,0.1393384337425232,,0.23,64,0.01,True,False,True,top_5_categories,250,transformations_like_literature
+3,0.73,0.14164960384368896,0.13138709962368011,,0.24,64,0.01,True,False,True,top_5_categories,250,transformations_like_literature
+4,0.72,0.13274556398391724,0.12812739610671997,,0.25,64,0.01,True,False,True,top_5_categories,250,transformations_like_literature
+5,0.72,0.11710929125547409,0.13275733590126038,,0.24,64,0.01,True,False,True,top_5_categories,250,transformations_like_literature
+6,0.73,0.1270468384027481,0.08550603687763214,,0.23,64,0.01,True,False,True,top_5_categories,250,transformations_like_literature
+7,0.71,0.1054806113243103,0.10015863925218582,,0.25,64,0.01,True,False,True,top_5_categories,250,transformations_like_literature
+8,0.71,0.10945950448513031,0.11031970381736755,,0.25,64,0.01,True,False,True,top_5_categories,250,transformations_like_literature
+9,0.7,0.10817553102970123,0.13973847031593323,,0.26,64,0.01,True,False,True,top_5_categories,250,transformations_like_literature
