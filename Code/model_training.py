@@ -63,11 +63,12 @@ warnings.filterwarnings("ignore")
 # last_training_loss = checkpoint['training_loss']
 # model_resnet18_adapted.to(device)
 
-def train_and_validate(debugging = False, smoke_test = True, image_directory = os.path.join(os.getcwd(), 'image_data'),
-                       transformations = 'transformations_simple_ResNet18', train_proportion = 0.6,
+def train_and_validate(debugging = False, smoke_test = True,
+                       image_directory = os.path.join(os.getcwd(), 'image_data'),
+                       transformations = 'transformations_like_literature', train_proportion = 0.6,
                        validate_proportion = 0.2, test_proportion = 0.2, pretrained = True,
                        finetuning_all_layers = False, finetuning_last_layer = True, batch_size = 16,
-                       learning_rate = 0.01, class_selection = "top_5_categories",
+                       learning_rate = 0.01, weight_decay = 0, class_selection = "top_5_categories",
                        samples_per_class = 100, n_epochs = 10, adam_betas = (0.9, 0.999),
                        # suggested default
                        adam_eps = 1e-08  # suggested default, for numerical stability
@@ -93,6 +94,7 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
     train_proportion
     transformations : str
     validate_proportion
+    weight_decay
     """
     if DEBUGGING:
         debugging = True
@@ -106,7 +108,7 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
     # create directories and loggers
     start_datetime = datetime.now()
     global experiment_identifier
-    experiment_identifier = f'{start_datetime.strftime("%d_%m_%Y_%H:%M:%S")}_SYS={socket.gethostname()}_BS={batch_size}_LR={learning_rate}_EPOCHS={n_epochs}_{transformations}_{class_selection}_SPC={samples_per_class}'
+    experiment_identifier = f'{start_datetime.strftime("%d_%m_%Y_%H:%M:%S")}_SYS={socket.gethostname()}_BS={batch_size}_LR={learning_rate}_WD={weight_decay}_EPOCHS={n_epochs}_{transformations}_{class_selection}_SPC={samples_per_class}'
     if pretrained:
         experiment_identifier = experiment_identifier + '_PRETRAINED'
     if finetuning_last_layer:
@@ -116,7 +118,9 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
     if smoke_test or debugging:
         experiment_identifier = experiment_identifier + '_DEBUGGING'
     print(f'Saving results to folder: {experiment_identifier}')
-    # create Tensorboard writer
+    global path_for_saving
+    path_for_saving = os.path.join('runs', experiment_identifier)
+    # instantiating the tensorboard writer also creates the respective directory
     writer_tb = SummaryWriter(log_dir = "runs/" + experiment_identifier, flush_secs = 30)
 
     # save all function attributes to disk in the trial folder
@@ -167,7 +171,11 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
 
     optimizer_adam = torch.optim.Adam(model_resnet18.parameters(), betas = my_args.adam_betas,
                                       eps = my_args.adam_eps, lr = my_args.learning_rate,
-                                      amsgrad = False)
+                                      amsgrad = False, weight_decay = my_args.weight_decay)
+
+    # this code can be used to change the parameters of the optimizer manually!
+    # for param_group in optimizer_adam.param_groups:
+    #     print(param_group['lr'])
     # loss = multi-class cross-entropy
     cross_entropy_multi_class_loss = nn.BCEWithLogitsLoss()
 
@@ -223,8 +231,9 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
         results_dataframe.validation_runtime_min[i] = round(
             (end_time_epoch_validate - start_time_epoch_validate) / 60, 2)
         results_dataframe.total_epoch_runtime_min[i] = round(
-                (end_time_epoch - start_time_epoch) / 60, 2)
+            (end_time_epoch - start_time_epoch) / 60, 2)
         results_dataframe.top1_accuracy[i] = classification_metrics.get('top1_accuracy')
+        results_dataframe.top3_accuracy[i] = classification_metrics.get('top3_accuracy')
         results_dataframe.top5_accuracy[i] = classification_metrics.get('top5_accuracy')
         results_dataframe.precision[i] = classification_metrics.get('precision')
         results_dataframe.recall[i] = classification_metrics.get('recall')
@@ -234,7 +243,7 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
         results_dataframe.false_positive_rate[i] = classification_metrics.get('false_positive_rate')
 
         # save the results dataframe to disk with current results
-        file_name = os.path.join(experiment_identifier, 'results.csv')
+        file_name = os.path.join(experiment_identifier, 'results_training.csv')
         results_dataframe.to_csv(path_or_buf = os.path.join(os.getcwd(), 'runs', file_name),
                                  index = False)
         # log everything to Tensorboard
@@ -246,20 +255,28 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
                        'loss/validation_loss': epoch_validate_loss,
                        'classification_metrics/top1_accuracy': classification_metrics.get(
                            'top1_accuracy'),
+                       'classification_metrics/top3_accuracy': classification_metrics.get(
+                           'top3_accuracy'),
                        'classification_metrics/top5_accuracy': classification_metrics.get(
                            'top5_accuracy'),
-                       'classification_metrics/precision_macro_average': np.mean(classification_metrics.get(
-                           'precision')),
-                       'classification_metrics/recall_macro_average': np.mean(classification_metrics.get('recall')),
-                       'classification_metrics/f1_score_macro_average': np.mean(classification_metrics.get('f1_score')),
-                       'classification_metrics/false_negative_rate_macro_average': np.mean(classification_metrics.get('false_negative_rate')),
-                       'classification_metrics/false_positive_rate_macro_average': np.mean(classification_metrics.get( 'false_positive_rate')),
-                       'timings/total_epoch_runtime_min': round((end_time_epoch - start_time_epoch) / 60, 2),
-                       'timings/train_runtime_min': round((end_time_epoch_train - start_time_epoch_train) / 60, 2),
-                       'timings/validation_runtime_min': round((end_time_epoch_validate - start_time_epoch_validate) / 60, 2)}
+                       'classification_metrics/precision_macro_average': np.mean(
+                           classification_metrics.get('precision')),
+                       'classification_metrics/recall_macro_average': np.mean(
+                           classification_metrics.get('recall')),
+                       'classification_metrics/f1_score_macro_average': np.mean(
+                           classification_metrics.get('f1_score')),
+                       'classification_metrics/false_negative_rate_macro_average': np.mean(
+                           classification_metrics.get('false_negative_rate')),
+                       'classification_metrics/false_positive_rate_macro_average': np.mean(
+                           classification_metrics.get('false_positive_rate')),
+                       'timings/total_epoch_runtime_min': round(
+                           (end_time_epoch - start_time_epoch) / 60, 2),
+                       'timings/train_runtime_min': round(
+                           (end_time_epoch_train - start_time_epoch_train) / 60, 2),
+                       'timings/validation_runtime_min': round(
+                           (end_time_epoch_validate - start_time_epoch_validate) / 60, 2)}
 
         for key, value in metric_dict.items():
-            print(key)
             writer_tb.add_scalar(key, value, i)
 
         writer_tb.flush()
@@ -270,22 +287,28 @@ def train_and_validate(debugging = False, smoke_test = True, image_directory = o
     ############------------- AFTER COMPLETING ALL EPOCHS ---------------#################
     writer_tb.add_hparams(
         hparam_dict = {'batch_size': my_args.batch_size, 'learning_rate': my_args.learning_rate,
+                       'weight_decay': my_args.weight_decay,
                        'class_selection': my_args.class_selection,
                        'samples_per_class': my_args.samples_per_class,
+                       'transformations': my_args.transformations,
                        'pretrained': my_args.pretrained,
-                       'finetuning_last_layer': my_args.finetuning_last_layer, },
+                       'finetuning_last_layer': my_args.finetuning_last_layer,
+                       'finetuning_all_layers': my_args.finetuning_all_layers},
         metric_dict = metric_dict)
+
     writer_tb.flush()
     writer_tb.close()
     # save the model + optimizer such that training could be resumed (after transferring to CPU)
     # source: https://pytorch.org/tutorials/beginner/saving_loading_models#saving-loading-a-general-checkpoint-for-inference-and-or-resuming-training
-    file_name_model = os.path.join(experiment_identifier, 'model_checkpoint.tar')
+    file_name_model = os.path.join(experiment_identifier, 'final_model_checkpoint.tar')
     torch.save(
         {'epoch': i, 'model': model_resnet18.state_dict(), 'optimizer': optimizer_adam.state_dict(),
          'training_loss': epoch_train_loss}, os.path.join(os.getcwd(), 'runs', file_name_model))
     print('Final model saved to disk.')
     end_script = time.perf_counter()
     print(f'Total script ran for {round((end_script - start_script) / 60, 2)} minutes.')
+    with open(os.path.join('runs', experiment_identifier, 'total_runtime_min.txt'), 'w') as f:
+        f.write(str(round((end_script - start_script) / 60, 2)))
     print(f'Local time is {datetime.now().strftime("%d.%m.%Y %H:%M:%S")}.')
 
 
@@ -322,6 +345,8 @@ def load_IslandConservation_subset(transformations, image_directory, class_selec
                                                transformations = image_transformations,
                                                samples_per_class = samples_per_class)
 
+    # save dataset_subset to disk, might
+
     # do train, validation and test splits
     number_of_instances = dataset_subset.__len__()
     train_size, validate_size, test_size = data_splits
@@ -333,6 +358,9 @@ def load_IslandConservation_subset(transformations, image_directory, class_selec
 
     train_validate_data, test_data = random_split(dataset_subset,
                                                   [train_length + val_length, test_length])
+
+    torch.save(train_validate_data, os.path.join(path_for_saving, 'train_validate_data.pt'))
+    torch.save(test_data, os.path.join(path_for_saving, 'test_data.pt'))
 
     print(f'Categories used are {dataset_subset.class_encoding}')
     print(f'Training on {number_of_instances} samples.')
@@ -377,11 +405,12 @@ def load_and_adapt_model(my_args, class_selection_ID_list):
 
 def create_logging_dataframe(my_args):
     results_dataframe = pd.DataFrame(
-        columns = ['epoch_number',  'training_loss', 'validation_loss', 'train_runtime_min',
-                   'validation_runtime_min', 'total_epoch_runtime_min', 'top1_accuracy', 'top5_accuracy', 'precision', 'recall',
-                   'f1_score', 'support', 'false_negative_rate', 'false_positive_rate',
-                   'batch_size', 'learning_rate', 'pretrained', 'finetuning_all_layers',
-                   'finetuning_last_layer',  'class_selection', 'samples_per_class', 'transformations'],
+        columns = ['epoch_number', 'training_loss', 'validation_loss', 'train_runtime_min',
+                   'validation_runtime_min', 'total_epoch_runtime_min', 'top1_accuracy', 'top3_accuracy',
+                   'top5_accuracy', 'precision', 'recall', 'f1_score', 'support',
+                   'false_negative_rate', 'false_positive_rate', 'batch_size', 'learning_rate',
+                   'pretrained', 'finetuning_all_layers', 'finetuning_last_layer',
+                   'class_selection', 'samples_per_class', 'transformations'],
         index = np.arange(my_args.n_epochs))
     results_dataframe['batch_size'] = results_dataframe['batch_size'].fillna(
         value = my_args.batch_size)
@@ -430,7 +459,8 @@ def train(train_loader, model, optimizer, device, criterion, my_args):
         end_batch = time.perf_counter()
         if my_args.debugging:
             print(f'Error of current batch is: {batch_error}')
-            print(f'Runtime of batch {batch_index+1}/{train_loader.__len__()} is {round(end_batch - start_batch, 2)} seconds.')
+            print(
+                f'Runtime of batch {batch_index + 1}/{train_loader.__len__()} is {round(end_batch - start_batch, 2)} seconds.')
         batch_time.append(end_batch - start_batch)
 
     epoch_loss = epoch_loss / train_loader.__len__()
@@ -440,7 +470,7 @@ def train(train_loader, model, optimizer, device, criterion, my_args):
 
 # %% VALIDATE FUNCTION
 
-def validate(data_loader, model, criterion, device, last_epoch: bool):
+def validate(data_loader, model, criterion, device, last_epoch: bool = False):
     print('\nValidating...')
     validate_loss = 0
     predictions = torch.Tensor().long().to(device)
@@ -461,7 +491,8 @@ def validate(data_loader, model, criterion, device, last_epoch: bool):
             # add class predictions and true labels to epoch-long tensor
             predictions = torch.cat((predictions, prediction_class_1D))
             true_labels = torch.cat((true_labels, true_class_1D))
-            prediction_probabilities = torch.cat((prediction_probabilities, prediction_prob), dim = 0)
+            prediction_probabilities = torch.cat((prediction_probabilities, prediction_prob),
+                                                 dim = 0)
 
     ### calculate all metrics and the loss using scikit-learn
     if torch.cuda.is_available():
@@ -475,17 +506,11 @@ def validate(data_loader, model, criterion, device, last_epoch: bool):
 
     # save all objects to disk for easy access after training
     if last_epoch:
-        path = os.path.join(os.getcwd(), 'runs', experiment_identifier)
-        torch.save(predictions, os.path.join(path, 'predictions.pt'))
-        torch.save(true_labels, os.path.join(path, 'labels.pt'))
-        torch.save(prediction_probabilities, os.path.join(path, 'prediction_probabilities.pt'))
-        with open(os.path.join(path, 'confusion_matrix.pickle'), 'wb') as file:
-            pickle.dump(classification_metrics.get('confusion_matrix'), file, pickle.HIGHEST_PROTOCOL)
-
-    # with open(os.path.join(path, 'confusion_matrix.pickle'), 'rb') as f:
-    #     # The protocol version used is detected automatically, so we do not
-    #     # have to specify it.
-    #     data = pickle.load(f)
+        torch.save(predictions, os.path.join(path_for_saving, 'predictions_validation_last_epoch.pt'))
+        torch.save(true_labels, os.path.join(path_for_saving, 'labels_validation_last_epoch.pt'))
+        torch.save(prediction_probabilities, os.path.join(path_for_saving, 'prediction_probabilities_validation_last_epoch.pt'))
+        with open(os.path.join(path_for_saving, 'confusion_matrix_validation_last_epoch.pickle'), 'wb') as file:
+            pickle.dump(classification_metrics.get('confusion_matrix'), file)
 
     # mean validation loss
     validate_loss = validate_loss / data_loader.__len__()
@@ -507,10 +532,16 @@ def calculate_evaluation_metrics(labels, predictions, prediction_probs):
 
     # top-1 accuracy
     top1_accuracy = accuracy_score(y_true = labels, y_pred = predictions)
+    # top-3 accuracy
+    top3_accuracy = top_k_accuracy_score(y_true = labels, y_score = prediction_probs, k = 3,
+                                         normalize = True)
     # top-5 accuracy
-    top5_accuracy = top_k_accuracy_score(y_true = labels, y_score = prediction_probs, k = 5, normalize = True)
+    top5_accuracy = top_k_accuracy_score(y_true = labels, y_score = prediction_probs, k = 5,
+                                         normalize = True)
     # precision, recall, f1 score and support per class
-    precision, recall, f1_score, support = precision_recall_fscore_support(y_true = labels, y_pred = predictions, average = None, beta = 1)
+    precision, recall, f1_score, support = precision_recall_fscore_support(y_true = labels,
+                                                                           y_pred = predictions,
+                                                                           average = None, beta = 1)
     # confusion matrix
     confuse_matrix = confusion_matrix(y_true = labels, y_pred = predictions)
 
@@ -540,24 +571,62 @@ def calculate_evaluation_metrics(labels, predictions, prediction_probs):
     # false positive rate/fall-out (fraction of false positives of all truly negative examples)
     FPR = FP / (FP + TN)
 
-    return {'top1_accuracy': top1_accuracy,
-            'top5_accuracy': top5_accuracy,
-            'precision': precision,
-            'recall': recall,
-            'f1_score': f1_score,
-            'support': support,
-            'confusion_matrix': confuse_matrix,
-            'false_negative_rate': FNR,
+    return {'top1_accuracy': top1_accuracy, 'top3_accuracy': top3_accuracy,  'top5_accuracy': top5_accuracy,
+            'precision': precision, 'recall': recall, 'f1_score': f1_score, 'support': support,
+            'confusion_matrix': confuse_matrix, 'false_negative_rate': FNR,
             'false_positive_rate': FPR}
 
-def test():
-    pass
 
-DEBUGGING = True
+def test(path_to_experiment, test_batch_size = 16):
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    # load the checkpoint to the respective device
+    checkpoint = torch.load(os.path.join(path_to_experiment, 'final_model_checkpoint.tar'),
+                            map_location = torch.device(device))
+
+    ### load the trained model
+    # load the number of classes
+    pickle_opener = open(os.path.join(path_to_experiment, 'confusion_matrix_validation_last_epoch.pickle'), 'rb')
+    confusion_matrix_trained = pickle.load(pickle_opener)
+    class_count = confusion_matrix_trained.shape[0]
+    # instantiate model and optimizer without any meaningful parameters
+    model_resnet_trained = torch.hub.load(repo_or_dir = 'pytorch/vision:v0.8.1', model = 'resnet18',
+                                          pretrained = False)
+    model_resnet_trained.fc = nn.Linear(in_features = model_resnet_trained.fc.in_features,
+                                        out_features = class_count, bias = True)
+    # write the parameters from the checkpoint to model
+    model_resnet_trained.load_state_dict(checkpoint['model'])
+    model_resnet_trained.eval()
+    model_resnet_trained.to(device)
+
+    # # only needed if training should be continued
+    # optimizer_adam_trained = torch.optim.Adam(model_resnet_trained.parameters())
+    # optimizer_adam_trained.load_state_dict(checkpoint['optimizer'])
+    # last_training_epoch = checkpoint['epoch']
+    # last_training_loss = checkpoint['training_loss']
+
+    # access the data
+    test_data = torch.load(os.path.join(path_to_experiment, 'test_data.pt'))
+    test_loader = DataLoader(test_data, batch_size = test_batch_size, shuffle = False, num_workers = 0)
+
+    # calculate all the classification metrics using the test data
+    cross_entropy_multi_class_loss = nn.BCEWithLogitsLoss()
+    test_loss, test_classification_metrics = validate(data_loader = test_loader, model = model_resnet_trained,
+                                                      criterion = cross_entropy_multi_class_loss,
+                                                      device = device)
+    # write test results to disk
+    temp = {k: v.tolist() for k, v in test_classification_metrics.items()}
+    with open(os.path.join(path_to_experiment, 'results_test_dataset.json'), 'w') as file:
+        json.dump(temp, file)
+
+    print('Successfully wrote results from test dataset to disk.')
+
+
+DEBUGGING = False
 
 if __name__ == '__main__':
     if DEBUGGING:
-        train_and_validate(class_selection = "3_small_categories", samples_per_class = 20, smoke_test = False)
+        print('CAREFUL, YOU ARE STILL IN DEBUGGING MODE!')
+        train_and_validate(class_selection = "top_5_categories", samples_per_class = 20, smoke_test = False, n_epochs = 3)
+        #test(test_batch_size = 16, path_to_experiment = os.path.join('runs', '19_02_2021_14:27:13_SYS=Schlepptop_BS=16_LR=0.01_WD=0_EPOCHS=3_transformations_like_literature_top_5_categories_SPC=20_PRETRAINED_FINETUNING_LAST_DEBUGGING'))
     else:
-        fire.Fire({'train+validate': train_and_validate,
-                   'test': validate})
+        fire.Fire({'train+validate': train_and_validate, 'test': test})
