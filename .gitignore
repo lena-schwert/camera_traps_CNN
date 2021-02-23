@@ -4,3 +4,7 @@
 /image_data_no_folder_structure/
 /Code/__pycache__
 *.pyc
+/.~lock.Lenas_sorted_class_count.csv\#
+/.~lock.experiment_plan.ods\#
+/copied_manually/
+/final_results/

@@ -68,7 +68,7 @@ def train_and_validate(debugging = False, smoke_test = True,
                        transformations = 'transformations_like_literature', train_proportion = 0.6,
                        validate_proportion = 0.2, test_proportion = 0.2, pretrained = True,
                        finetuning_all_layers = False, finetuning_last_layer = True, batch_size = 16,
-                       learning_rate = 0.01, weight_decay = 0, class_selection = "top_5_categories",
+                       learning_rate = 0.01, weight_decay = 0, class_selection = 'top_5_categories',
                        samples_per_class = 100, n_epochs = 10, adam_betas = (0.9, 0.999),
                        # suggested default
                        adam_eps = 1e-08  # suggested default, for numerical stability
@@ -386,7 +386,6 @@ def load_and_adapt_model(my_args, class_selection_ID_list):
     # fully connected layer has as many dimensions as classes selected
     model_resnet18_adapted.fc = nn.Linear(in_features = model_resnet18_adapted.fc.in_features,
                                           out_features = len(class_selection_ID_list), bias = True)
-    # TODO change, needs to come from somewhere else!
     # doublecheck the requires_grad attribute
     print('######## MODEL ##########')
     print('These are the layers that are trained:')
