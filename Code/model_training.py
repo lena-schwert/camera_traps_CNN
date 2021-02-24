@@ -64,6 +64,7 @@ warnings.filterwarnings("ignore")
 # model_resnet18_adapted.to(device)
 
 def train_and_validate(debugging = False, smoke_test = True,
+                       train_validate_data_path = None, test_data_path = None,
                        image_directory = os.path.join(os.getcwd(), 'image_data'),
                        transformations = 'transformations_like_literature', train_proportion = 0.6,
                        validate_proportion = 0.2, test_proportion = 0.2, pretrained = True,
@@ -173,18 +174,29 @@ def train_and_validate(debugging = False, smoke_test = True,
                                       eps = my_args.adam_eps, lr = my_args.learning_rate,
                                       amsgrad = False, weight_decay = my_args.weight_decay)
 
-    # this code can be used to change the parameters of the optimizer manually!
+    # checkpoint loading: this code can be used to change the parameters of the optimizer manually!
     # for param_group in optimizer_adam.param_groups:
     #     print(param_group['lr'])
     # loss = multi-class cross-entropy
     cross_entropy_multi_class_loss = nn.BCEWithLogitsLoss()
 
     ### load the data
+    if train_validate_data_path is None and test_data_path is None:
+        train_validation_data, test_data, train_length, val_length = load_IslandConservation_subset(
+            transformations = transformations, image_directory = image_directory,
+            class_selection_ID_list = class_selection_ID_list, samples_per_class = samples_per_class,
+            data_splits = (train_proportion, validate_proportion, test_proportion))
 
-    train_validation_data, test_data, train_length, val_length = load_IslandConservation_subset(
-        transformations = transformations, image_directory = image_directory,
-        class_selection_ID_list = class_selection_ID_list, samples_per_class = samples_per_class,
-        data_splits = (train_proportion, validate_proportion, test_proportion))
+    # if data is loaded from disk, it will not be saved to disk in the folder!
+    train_validation_data = torch.load(os.path.join(os.getcwd(), train_validate_data_path))
+    test_data = torch.load(os.path.join(os.getcwd(), test_data_path))
+    # make sure that the correct image base dir is set
+    train_validation_data.dataset.img_base_dir = os.path.join(os.getcwd(), 'image_data')
+
+    # calculate train+ val length for train/validation split in the training loop
+    number_of_instances = train_validation_data.indices.__len__() + test_data.indices.__len__()
+    train_length = int(train_proportion * number_of_instances)
+    val_length = int(validate_proportion * number_of_instances)
 
     ############------------- TRAINING ---------------#################
     start_datetime = datetime.now()
@@ -576,7 +588,7 @@ def calculate_evaluation_metrics(labels, predictions, prediction_probs):
             'false_positive_rate': FPR}
 
 
-def test(path_to_experiment, test_batch_size = 16):
+def test(path_to_experiment, test_data_filename = 'test_data.pt', test_batch_size = 16):
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     # load the checkpoint to the respective device
     checkpoint = torch.load(os.path.join(path_to_experiment, 'final_model_checkpoint.tar'),
@@ -604,7 +616,9 @@ def test(path_to_experiment, test_batch_size = 16):
     # last_training_loss = checkpoint['training_loss']
 
     # access the data
-    test_data = torch.load(os.path.join(path_to_experiment, 'test_data.pt'))
+    test_data = torch.load(os.path.join(path_to_experiment, test_data_filename))
+    # ensure the image base dir is correct
+    test_data.dataset.img_base_dir = os.path.join(os.getcwd(), 'image_data')
     test_loader = DataLoader(test_data, batch_size = test_batch_size, shuffle = False, num_workers = 0)
 
     # calculate all the classification metrics using the test data
@@ -625,7 +639,10 @@ DEBUGGING = False
 if __name__ == '__main__':
     if DEBUGGING:
         print('CAREFUL, YOU ARE STILL IN DEBUGGING MODE!')
-        train_and_validate(class_selection = "top_5_categories", samples_per_class = 20, smoke_test = False, n_epochs = 3)
+        train_and_validate(smoke_test = False, class_selection = "top_5_categories",
+                           train_validate_data_path = 'data_splits/train_validate_data_experiment_2.pt',
+                           test_data_path = 'data_splits/test_data_experiment_2.pt',
+                           samples_per_class = 20, n_epochs = 3)
         #test(test_batch_size = 16, path_to_experiment = os.path.join('runs', '19_02_2021_14:27:13_SYS=Schlepptop_BS=16_LR=0.01_WD=0_EPOCHS=3_transformations_like_literature_top_5_categories_SPC=20_PRETRAINED_FINETUNING_LAST_DEBUGGING'))
     else:
         fire.Fire({'train+validate': train_and_validate, 'test': test})
