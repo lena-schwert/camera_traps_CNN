@@ -60,27 +60,30 @@ test_dataframe = pd.DataFrame.from_dict(d).drop(['confusion_matrix', 'support'],
 # calculate mean values out of each list
 # select columns that are list entries
 
-# works for replacing list with its mean, but throws a SettingWithCopyWarning
-# SettingWithCopyWarning: A value is trying to be set on a copy of a slice from a DataFrame
+# works for replacing list with its mean
 for column in test_dataframe.columns[3:8]:
     for i in test_dataframe[column].iteritems():
-        #test_dataframe[column].iloc[i[0]] = np.mean(i[1])
+        #test_dataframe[column].iloc[i[0]] = np.mean(i[1])  # throws Settingwithcopwarning
         test_dataframe.loc[i[0], column] = np.mean(i[1]).astype('float64')
     # cast column to float, otherwise it will not be rounded!
     test_dataframe[column] = test_dataframe[column].astype('float64')
+
+# calculate percentage = multiply by 100 (except the rates)
+test_dataframe = test_dataframe[0:5].apply(lambda x: x*100 if x.name in test_dataframe.columns[0:3] else x,
+                                 axis = 0)
 
 # round all values
 test_dataframe = test_dataframe.round(2)
 
 # write to csv on disk
-test_dataframe.to_csv(path_or_buf = path_to_final_results + 'all_test_results.csv', index = False)
+test_dataframe.to_csv(path_or_buf = path_to_final_results + 'all_test_results_class_specific.csv', index = False)
 
 # %% plot all confusion matrices
 
 # source: https://medium.com/@dtuk81/confusion-matrix-visualization-fc31e3f30fea
 
 NORMALIZE = False
-SAVE = False
+SAVE = True
 
 
 def plot_save_confusion_matrix(confusion_matrix, list_of_category_names, figure_name, show = True,
@@ -108,8 +111,7 @@ def plot_save_confusion_matrix(confusion_matrix, list_of_category_names, figure_
                            yticklabels = list_of_category_names)
     else:
         plot = sns.heatmap(confusion_matrix, annot = True, cmap = 'Blues', fmt = 'd',
-                           # vmin = 0, vmax = 225,  # use this for experiments 2+3
-                           cbar = show_colorbar, vmin = 0, vmax = 16000,
+                           cbar = show_colorbar,
                            xticklabels = list_of_category_names,
                            yticklabels = list_of_category_names)
     plt.xlabel('Predicted Class', labelpad = 10, fontweight = 'bold')
@@ -120,7 +122,7 @@ def plot_save_confusion_matrix(confusion_matrix, list_of_category_names, figure_
     if save:
         figure_object = plot.get_figure()
         figure_object.savefig(os.path.join('/home/lena/git/research_project/results_plotted/final',
-                                           figure_name + '.png'))
+                                           figure_name + '.png'), dpi = 600)
     return plot
 
 
@@ -128,27 +130,27 @@ top_5_categories = ['empty', 'rabbit', 'petrel', 'iguana', 'rat']
 top_10_categories = ['empty', 'rabbit', 'petrel', 'iguana', 'rat', 'cat', 'pig', 'goat',
                      'shearwater', 'petrel chick']
 
-# plot_save_confusion_matrix(experiment_1_balanced.get('confusion_matrix'),
-#                            list_of_category_names = top_5_categories,
-#                            figure_name = 'experiment_1_balanced_conf_matrix', save = SAVE,
-#                            normalized = NORMALIZE, show_colorbar = True)
+plot_save_confusion_matrix(experiment_1_balanced.get('confusion_matrix'),
+                           list_of_category_names = top_5_categories,
+                           figure_name = 'experiment_1_balanced_conf_matrix', save = SAVE,
+                           normalized = NORMALIZE, show_colorbar = True)
 
 plot_save_confusion_matrix(experiment_1_imbalanced.get('confusion_matrix'),
                            list_of_category_names = top_5_categories,
                            figure_name = 'experiment_1_imbalanced_conf_matrix', save = SAVE,
                            normalized = NORMALIZE, show_colorbar = True)
 
-# plot_save_confusion_matrix(experiment_2_feature.get('confusion_matrix'),
-#                            list_of_category_names = top_5_categories,
-#                            figure_name = 'experiment_2_feature_conf_matrix', save = SAVE,
-#                            normalized = NORMALIZE, show_colorbar = True)
-#
-# plot_save_confusion_matrix(experiment_2_from_scratch.get('confusion_matrix'),
-#                            list_of_category_names = top_5_categories,
-#                            figure_name = 'experiment_2_from_scratch_conf_matrix', save = SAVE,
-#                            normalized = NORMALIZE, show_colorbar = True)
-#
-# plot_save_confusion_matrix(experiment_3_ten_classes.get('confusion_matrix'),
-#                            list_of_category_names = top_10_categories,
-#                            figure_name = 'experiment_3_ten_classes_conf_matrix', save = SAVE,
-#                            normalized = NORMALIZE)
+plot_save_confusion_matrix(experiment_2_feature.get('confusion_matrix'),
+                           list_of_category_names = top_5_categories,
+                           figure_name = 'experiment_2_feature_conf_matrix', save = SAVE,
+                           normalized = NORMALIZE, show_colorbar = True)
+
+plot_save_confusion_matrix(experiment_2_from_scratch.get('confusion_matrix'),
+                           list_of_category_names = top_5_categories,
+                           figure_name = 'experiment_2_from_scratch_conf_matrix', save = SAVE,
+                           normalized = NORMALIZE, show_colorbar = True)
+
+plot_save_confusion_matrix(experiment_3_ten_classes.get('confusion_matrix'),
+                           list_of_category_names = top_10_categories,
+                           figure_name = 'experiment_3_ten_classes_conf_matrix', save = SAVE,
+                           normalized = NORMALIZE)
